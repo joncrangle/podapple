@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Podapple Configuration",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "theme": {
+      "type": "string",
+      "enum": ["Catppuccin Mocha", "Tokyo Night", "Kanagawa", "Nord"],
+      "description": "The color theme to use",
+      "default": "Catppuccin Mocha"
+    },
+    "favoriteDrives": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Ordered list of favorite drive names (highest priority first)",
+      "default": []
+    }
+  }
+}

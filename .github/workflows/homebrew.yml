@@ -1,0 +1,99 @@
+name: Update Homebrew Formula
+
+on:
+  workflow_run:
+    workflows: ["Release"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  update-formula:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+
+      - name: Get release version
+        id: get_version
+        run: |
+          TAG_NAME=${{ github.event.workflow_run.head_branch }} 
+
+          if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" == "null" ]; then
+             TAG_NAME=$(curl -s https://api.github.com/repos/${{ github.repository }}/releases/latest | jq -r .tag_name)
+          fi
+
+          VERSION=${TAG_NAME#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Download and Parse Checksums
+        id: shas
+        run: |
+          TAG=${{ steps.get_version.outputs.tag }}
+          VERSION=${{ steps.get_version.outputs.version }}
+          CHECKSUMS_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/checksums.txt"
+
+          echo "Downloading checksums.txt from $CHECKSUMS_URL..."
+          curl -L -f -o checksums.txt "$CHECKSUMS_URL"
+          cat checksums.txt
+
+          FILE_ARM="podapple_${VERSION}_Darwin_arm64.tar.gz"
+          FILE_INTEL="podapple_${VERSION}_Darwin_x86_64.tar.gz"
+
+          # Extract SHAs from checksums.txt
+          # Format: SHA256  filename
+          ARM_SHA=$(grep "$FILE_ARM" checksums.txt | awk '{print $1}')
+          INTEL_SHA=$(grep "$FILE_INTEL" checksums.txt | awk '{print $1}')
+
+          if [ -z "$ARM_SHA" ]; then
+            echo "Error: Could not find SHA for $FILE_ARM"
+            exit 1
+          fi
+
+          if [ -z "$INTEL_SHA" ]; then
+            echo "Error: Could not find SHA for $FILE_INTEL"
+            exit 1
+          fi
+
+          echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
+          echo "intel_sha=$INTEL_SHA" >> $GITHUB_OUTPUT
+
+      - name: Clone Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: joncrangle/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update formula
+        run: |
+          FORMULA=tap/Formula/podapple.rb
+          VERSION=${{ steps.get_version.outputs.version }}
+          TAG=${{ steps.get_version.outputs.tag }}
+          ARM_SHA=${{ steps.shas.outputs.arm_sha }}
+          INTEL_SHA=${{ steps.shas.outputs.intel_sha }}
+
+          # Update Version
+          sed -i "s|version \".*\"|version \"${VERSION}\"|g" $FORMULA
+
+          # Update URLs
+          # Matches: url "https://github.com/.../releases/download/v.../podapple_..._Darwin_arm64.tar.gz"
+          sed -i "s|url \".*Darwin_arm64.tar.gz\"|url \"https://github.com/${{ github.repository }}/releases/download/${TAG}/podapple_${VERSION}_Darwin_arm64.tar.gz\"|g" $FORMULA
+          sed -i "s|url \".*Darwin_x86_64.tar.gz\"|url \"https://github.com/${{ github.repository }}/releases/download/${TAG}/podapple_${VERSION}_Darwin_x86_64.tar.gz\"|g" $FORMULA
+
+          # Update SHAs
+          perl -i -0777 -pe "s|(url \".*Darwin_arm64.tar.gz\"\n\s+sha256 \")[^\"]*(\")|\$1${ARM_SHA}\$2|g" $FORMULA
+          perl -i -0777 -pe "s|(url \".*Darwin_x86_64.tar.gz\"\n\s+sha256 \")[^\"]*(\")|\$1${INTEL_SHA}\$2|g" $FORMULA
+
+      - name: Commit and push
+        run: |
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/podapple.rb
+          git commit -m "Update podapple to v${{ steps.get_version.outputs.version }}"
+          git push
