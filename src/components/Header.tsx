@@ -57,8 +57,6 @@ export function Header(props: HeaderProps) {
         when={isSmallHeight()}
         fallback={
           <box
-            borderStyle="rounded"
-            borderColor={Colors.status.app}
             style={{
               paddingLeft: 1,
               paddingRight: 1,

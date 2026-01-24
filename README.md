@@ -4,21 +4,27 @@ A modern, terminal-based Apple Podcasts synchronizer built for speed and simplic
 
 ![Demo](./assets/demo.gif)
 
-**Note: This application is specifically designed for macOS.**
+> [!IMPORTANT]
+> macOS Only: This application relies on local macOS Podcasts databases and is not compatible with other operating systems.
 
-## Features
+## 🚀 Features
 
-- 🖥️ **TUI Interface**: Full terminal user interface using `@opentui`.
+- 🖥️ **Modern TUI**: A fully interactive terminal experience powered by `@opentui`.
 - ⚡ **Fast**: Built on the Bun runtime.
-- 🔄 **Syncing**: Seamlessly sync selected episodes to external drives (e.g., Apple iPods or MP3 players).
+- 🔄 **Sync**: Transfer selected episodes from Podcasts app to external drives or Digital Audio Players (DAPs).
 
-## Syncing with Drives
+### 📂 Sync Engine Capabilities
 
-`Podapple` includes a powerful sync engine designed to manage your Podcast library:
-- **Automatic Detection**: Scans and identifies compatible external drives.
-- **Smart Metadata**: Automatically tags synced files with correct podcast metadata (Title, Artist, Album).
-- **Sanitization**: Ensures filenames and directory structures are compatible with standard MP3 player filesystems.
-- **Progress Tracking**: Real-time feedback on transfer speeds, byte counts, and remaining files.
+The core of `Podapple` is a sync engine optimized for external storage and digital audio players.
+
+**Technical Highlights**
+
+| Feature | Description |
+|---|---|
+| Auto-Detection | Instantly identifies compatible external volumes and mount points. |
+| Smart Metadata | Injects ID3 tags (Title, Artist, Album) so episodes look perfect on any device. |
+| Filesystem Safety | Automatically sanitizes filenames to prevent errors on FAT32/exFAT drives. |
+| Real-time Metrics | Monitors transfer speeds, byte counts, and queue progress with precision. |
 
 ## Getting Started
 
@@ -39,7 +45,7 @@ brew install podapple
 
 #### Binary
 
-Download a prebuilt binary for Apple Silicon (aarch64) or Intel Mac (x86_64) from the [latest release](https://github.com/joncrangle/podapple/releases).
+Download a prebuilt binary for Apple Silicon (arm64) or Intel Mac (x86_64) from the [latest release](https://github.com/joncrangle/podapple/releases).
 
 ## Development
 
