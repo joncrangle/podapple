@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/joncrangle/podapple/compare/v0.1.2...v0.1.3) (2026-01-24)
+
+
+### Bug Fixes
+
+* **drives:** fix drive detection and debug overlay ([d86417d](https://github.com/joncrangle/podapple/commit/d86417da9e5f16480ffbe53a62e4813d6bde2576))
+
 ## [0.1.2](https://github.com/joncrangle/podapple/compare/v0.1.1...v0.1.2) (2026-01-24)
 
 
