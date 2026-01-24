@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag to build for (e.g. v0.1.0)'
+        description: "Tag to build for (e.g. v0.1.0)"
         required: true
         type: string
   workflow_call:
@@ -23,7 +23,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-13
+          - os: macos-15-intel
             target: darwin-x64
             suffix: Darwin_x86_64
           - os: macos-latest
@@ -51,11 +51,11 @@ jobs:
           VERSION="${{ inputs.tag_name }}"
           VERSION=${VERSION#v}
           ARCHIVE_NAME="podapple_${VERSION}_${{ matrix.suffix }}.tar.gz"
-          
+
           cd dist
           tar -czf "../$ARCHIVE_NAME" podapple
           cd ..
-          
+
           echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
 
       - name: Upload Artifact
@@ -89,4 +89,3 @@ jobs:
           files: |
             artifacts/*.tar.gz
             artifacts/checksums.txt
-
