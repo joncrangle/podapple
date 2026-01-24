@@ -31,6 +31,7 @@ export function EpisodeList(props: EpisodeListProps) {
       flexGrow={props.flexGrow ?? 1}
       flexBasis={0}
       flexShrink={1}
+      maxHeight="100%"
       width={props.width ?? "50%"}
       backgroundColor={backgroundColor()}
       padding={1}
