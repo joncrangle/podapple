@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { Either } from "effect";
 import {
   getPlistBoolean,
   getPlistNumber,
@@ -18,7 +19,7 @@ describe("Plist Parser", () => {
   <string>WALKMAN</string>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
       expect(getPlistString(result, "VolumeName")).toBe("WALKMAN");
     });
 
@@ -32,7 +33,7 @@ describe("Plist Parser", () => {
   <integer>16000000000</integer>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
       expect(getPlistNumber(result, "TotalSize")).toBe(32000000000);
       expect(getPlistNumber(result, "FreeSpace")).toBe(16000000000);
     });
@@ -47,7 +48,7 @@ describe("Plist Parser", () => {
   <true/>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
       expect(getPlistBoolean(result, "Internal")).toBe(false);
       expect(getPlistBoolean(result, "Removable")).toBe(true);
     });
@@ -65,7 +66,7 @@ describe("Plist Parser", () => {
   </dict>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
       const driveInfo = result.DriveInfo as PlistDict;
       expect(driveInfo).toBeDefined();
       expect(getPlistString(driveInfo, "Name")).toBe("USB Drive");
@@ -83,7 +84,7 @@ describe("Plist Parser", () => {
   </array>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
       const volumes = result.Volumes as string[];
       expect(volumes).toHaveLength(2);
       expect(volumes[0]).toBe("WALKMAN");
@@ -115,7 +116,7 @@ describe("Plist Parser", () => {
 	<string>WALKMAN</string>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
 
       expect(getPlistString(result, "BusProtocol")).toBe("USB");
       expect(getPlistString(result, "VolumeName")).toBe("WALKMAN");
@@ -135,7 +136,7 @@ describe("Plist Parser", () => {
   <string>Tom &amp; Jerry&apos;s Drive</string>
 </dict>
 </plist>`;
-      const result = parsePlist(xml) as PlistDict;
+      const result = Either.getOrThrow(parsePlist(xml)) as PlistDict;
       expect(getPlistString(result, "Name")).toBe("Tom & Jerry's Drive");
     });
   });

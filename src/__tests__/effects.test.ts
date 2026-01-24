@@ -179,6 +179,7 @@ describe("DriveDetection Service", () => {
     {
       id: "USB_DRIVE",
       name: "USB_DRIVE",
+      bsdName: "disk2s1",
       mountPoint: "/Volumes/USB_DRIVE",
       totalSpace: 64000000000,
       freeSpace: 32000000000,
@@ -186,6 +187,7 @@ describe("DriveDetection Service", () => {
     {
       id: "BACKUP",
       name: "BACKUP",
+      bsdName: "disk3s1",
       mountPoint: "/Volumes/BACKUP",
       totalSpace: 128000000000,
       freeSpace: 64000000000,

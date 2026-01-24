@@ -65,7 +65,7 @@ export function Modal(props: ModalProps) {
           </box>
 
           {/* Content */}
-          <box flexDirection="column" padding={1}>
+          <box flexDirection="column" padding={1} flexGrow={props.height ? 1 : 0}>
             {props.children}
           </box>
         </box>

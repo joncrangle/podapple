@@ -3,6 +3,7 @@ import { onMount } from "solid-js";
 import {
   DriveDetection,
   DriveDetectionLive,
+  type DriveEvent,
   DriveScan,
   DriveScanLive,
   type EpisodeMatcher,
@@ -184,6 +185,55 @@ export const useAppLogic = () => {
     );
 
   /**
+   * Listens for drive appearance/disappearance events in the background.
+   */
+  const listenForDrives = () =>
+    Effect.gen(function* () {
+      const detection = yield* DriveDetection;
+      const logger = yield* Logger;
+
+      yield* Stream.runForEach(detection.driveEvents, (event: DriveEvent) =>
+        Effect.gen(function* () {
+          if (event._tag === "Appeared") {
+            const drive = event.drive;
+            actions.setDrives((prev) => {
+              const filtered = prev.filter((d) => d.id !== drive.id);
+              return [...filtered, drive].sort((a, b) => {
+                const aFav = state.favoriteDrives.includes(a.id);
+                const bFav = state.favoriteDrives.includes(b.id);
+                if (aFav && !bFav) return -1;
+                if (!aFav && bFav) return 1;
+                return 0;
+              });
+            });
+            actions.addDebugMessage(`Drive appeared: ${drive.name}`);
+            yield* logger.info(`Drive appeared: ${drive.name} (${drive.id})`);
+
+            // Auto-select if no drive is currently selected
+            if (!state.currentDrive) {
+              actions.setCurrentDrive(drive);
+              yield* loadDrivePodcastsEffect(drive);
+            }
+          } else if (event._tag === "Disappeared") {
+            actions.setDrives((prev) => prev.filter((d) => d.id !== event.driveId));
+            if (state.currentDrive?.id === event.driveId) {
+              actions.setCurrentDrive(null);
+              actions.setDrivePodcasts([]);
+            }
+            actions.addDebugMessage(`Drive disappeared: ${event.driveId}`);
+            yield* logger.info(`Drive disappeared: ${event.driveId}`);
+          }
+        }),
+      );
+    }).pipe(
+      Effect.catchAll((err) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        actions.addDebugMessage(`Drive listener error: ${errorMessage}`, "error");
+        return Effect.void;
+      }),
+    );
+
+  /**
    * Loads application settings from disk.
    */
   const loadSettings = () =>
@@ -254,6 +304,9 @@ export const useAppLogic = () => {
       Effect.gen(function* () {
         const logger = yield* Logger;
         yield* loadSettings();
+
+        // Start background drive listener
+        runFork(listenForDrives());
 
         const podcastService = yield* PodcastService;
         const available = yield* podcastService.checkAvailability;

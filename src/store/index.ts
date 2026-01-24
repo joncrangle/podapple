@@ -34,6 +34,7 @@ export interface AppState {
   lastKey: string | null;
   lastSavedTheme: string;
   themeMenuIndex: number;
+  debugMenuIndex: number;
   favoriteDrives: string[];
 }
 
@@ -44,6 +45,7 @@ const initialState: AppState = {
   driveIndex: 0,
   driveMenuIndex: 0,
   themeMenuIndex: 0,
+  debugMenuIndex: 0,
   macPodcasts: [],
   drivePodcasts: [],
   drives: [],
@@ -78,6 +80,8 @@ export const actions = {
     setState("driveMenuIndex", index),
   setThemeMenuIndex: (index: number | ((prev: number) => number)) =>
     setState("themeMenuIndex", index),
+  setDebugMenuIndex: (index: number | ((prev: number) => number)) =>
+    setState("debugMenuIndex", index),
   setMacPodcasts: (episodes: PodcastEpisode[] | ((prev: PodcastEpisode[]) => PodcastEpisode[])) =>
     setState("macPodcasts", episodes),
   setDrivePodcasts: (episodes: PodcastEpisode[] | ((prev: PodcastEpisode[]) => PodcastEpisode[])) =>

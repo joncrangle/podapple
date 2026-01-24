@@ -11,12 +11,14 @@ export interface SelectorProps<T> {
   items: T[];
   emptyText?: string;
   loadingText?: string;
-  formatItem: (item: T) => { name: string; description?: string };
+  formatItem: (item: T) => { name: string; description?: string; color?: string };
   onSelect: (item: T) => void;
   onClose: () => void;
   onChange?: (item: T) => void;
   selectedIndex?: number;
   extraShortcuts?: { key: string; label: string }[];
+  width?: number | `${number}%` | "auto";
+  height?: number | `${number}%` | "auto";
 }
 
 export function Selector<T>(props: SelectorProps<T>) {
@@ -48,8 +50,13 @@ export function Selector<T>(props: SelectorProps<T>) {
   });
 
   return (
-    <Modal title={props.title} visible={props.visible} width={70}>
-      <box flexDirection="column" gap={1}>
+    <Modal
+      title={props.title}
+      visible={props.visible}
+      width={props.width ?? 70}
+      height={props.height}
+    >
+      <box flexDirection="column" gap={1} flexGrow={props.height ? 1 : 0}>
         <Show when={props.loading}>
           <Spinner active={true} label={props.loadingText || "Loading..."} />
         </Show>
@@ -61,7 +68,8 @@ export function Selector<T>(props: SelectorProps<T>) {
           >
             <scrollbox
               focused={true}
-              height={Math.min(props.items.length, 12)}
+              height={props.height ? undefined : Math.min(props.items.length, 12)}
+              flexGrow={props.height ? 1 : 0}
               scrollbarOptions={{
                 trackOptions: {
                   backgroundColor: Colors.list.scrollBarTrack,
@@ -84,7 +92,9 @@ export function Selector<T>(props: SelectorProps<T>) {
                     >
                       <text
                         style={{
-                          fg: isFocused() ? Colors.list.focused : Colors.text.primary,
+                          fg: isFocused()
+                            ? Colors.list.focused
+                            : info().color || Colors.text.primary,
                         }}
                       >
                         {info().name}

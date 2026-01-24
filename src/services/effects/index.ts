@@ -10,6 +10,7 @@ export {
   DriveDetection,
   DriveDetectionError,
   DriveDetectionLive,
+  type DriveEvent,
 } from "./DriveDetection";
 export {
   createDriveScanTest,
