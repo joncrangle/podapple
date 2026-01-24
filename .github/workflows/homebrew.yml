@@ -80,16 +80,31 @@ jobs:
           ARM_SHA=${{ steps.shas.outputs.arm_sha }}
           INTEL_SHA=${{ steps.shas.outputs.intel_sha }}
           
-          # Update Version
-          sed -i "s|version \".*\"|version \"${VERSION}\"|g" $FORMULA
-          
-          # Update URLs
-          sed -i "s|url \".*Darwin_arm64.tar.gz\"|url \"https://github.com/${{ github.repository }}/releases/download/${TAG}/podapple_${VERSION}_Darwin_arm64.tar.gz\"|g" $FORMULA
-          sed -i "s|url \".*Darwin_x86_64.tar.gz\"|url \"https://github.com/${{ github.repository }}/releases/download/${TAG}/podapple_${VERSION}_Darwin_x86_64.tar.gz\"|g" $FORMULA
-          
-          # Update SHAs (using perl for multiline context)
-          perl -i -0777 -pe "s|(url \".*Darwin_arm64.tar.gz\"\n\s+sha256 \")[^\"]*(\")|\$1${ARM_SHA}\$2|g" $FORMULA
-          perl -i -0777 -pe "s|(url \".*Darwin_x86_64.tar.gz\"\n\s+sha256 \")[^\"]*(\")|\$1${INTEL_SHA}\$2|g" $FORMULA
+          cat > $FORMULA <<EOF
+          class PodApple < Formula
+            desc "A modern, terminal-based Apple Podcasts synchronizer built for speed and simplicity."
+            homepage "https://github.com/joncrangle/podapple"
+            license "GPL-3.0-only"
+
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/joncrangle/podapple/releases/download/${TAG}/podapple_${VERSION}_Darwin_arm64.tar.gz"
+                sha256 "${ARM_SHA}"
+              else
+                url "https://github.com/joncrangle/podapple/releases/download/${TAG}/podapple_${VERSION}_Darwin_x86_64.tar.gz"
+                sha256 "${INTEL_SHA}"
+              end
+            end
+
+            def install
+              bin.install "podapple"
+            end
+
+            test do
+              system "#{bin}/podapple", "--version"
+            end
+          end
+          EOF
 
       - name: Commit and push
         run: |
