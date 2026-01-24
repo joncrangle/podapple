@@ -1,8 +1,9 @@
 Output assets/demo.gif
-Set FontSize 10
+Set FontSize 12
 Set Width 1800
 Set Height 800
 Set Theme "Catppuccin Mocha"
+Set TypingSpeed 500ms
 
 Hide
 Type "just start"
