@@ -35,14 +35,12 @@ export const SettingsServiceLive = Layer.effect(
     const fs = yield* FileSystem;
 
     const loadSettings = fs.readFile(SETTINGS_FILE).pipe(
-      Effect.map((data) => {
-        try {
+      Effect.flatMap((data) =>
+        Effect.try(() => {
           const text = new TextDecoder().decode(data);
           return JSON.parse(text) as Settings;
-        } catch (_e) {
-          return { theme: "Catppuccin Mocha", favoriteDrives: [] };
-        }
-      }),
+        }),
+      ),
       Effect.catchAll(() => Effect.succeed({ theme: "Catppuccin Mocha", favoriteDrives: [] })),
     );
 

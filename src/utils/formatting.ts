@@ -1,3 +1,4 @@
+import { Either } from "effect";
 import type { Podcast, PodcastEpisode } from "@/types/podcast";
 import { hasNerdFont } from "@/utils/terminal";
 
@@ -55,14 +56,12 @@ export function sanitizeFilename(name: string): string {
  * Returns the original URL if it's not a file URL or if decoding fails.
  */
 export function cleanFileUrl(url: string): string {
-  if (url.startsWith("file://")) {
-    try {
-      return decodeURIComponent(new URL(url).pathname);
-    } catch {
-      return url;
-    }
-  }
-  return url;
+  if (!url) return "";
+  // Handle file:// protocol
+  return Either.try(() => {
+    const decoded = decodeURIComponent(url);
+    return decoded.startsWith("file://") ? decoded.slice(7) : decoded;
+  }).pipe(Either.getOrElse(() => url));
 }
 
 /**
@@ -113,13 +112,40 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * Format date matching original Go implementation (2006-01-02 format).
+ * Formats a duration in seconds to MM:SS format
+ * Duplicate of formatDuration logic but different padding?
+ * Keeping for compatibility if used elsewhere.
  */
+export function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "--:--";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Formats bytes to human readable string (KB, MB, GB)
+ * Duplicate of formatBytes?
+ */
+export function formatSize(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`;
+}
+
+/**
+ * Truncates string to max length with ellipsis
+ */
+export function truncate(str: string, maxLength: number): string {
+  if (str.length <= maxLength) return str;
+  return `${str.slice(0, maxLength - 1)}…`;
+}
+
 export function formatDate(date: Date): string {
   if (date.getTime() === 0) {
     return "Unknown";
   }
-
   const year = date.getFullYear();
   const month = (date.getMonth() + 1).toString().padStart(2, "0");
   const day = date.getDate().toString().padStart(2, "0");
@@ -129,6 +155,7 @@ export function formatDate(date: Date): string {
 
 /**
  * Truncates a string to a maximum length, adding an ellipsis if needed.
+ * Duplicate of truncate but with ... instead of …
  */
 export function truncateString(str: string, maxLength: number): string {
   if (str.length <= maxLength) {

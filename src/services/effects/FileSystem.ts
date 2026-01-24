@@ -107,15 +107,14 @@ const isSystemHiddenFileImpl = (name: string): boolean => {
 
 export const FileSystemLive = Layer.succeed(FileSystem, {
   exists: (path) =>
-    Effect.promise(async () => {
-      const { stat } = await import("node:fs/promises");
-      try {
+    Effect.tryPromise({
+      try: async () => {
+        const { stat } = await import("node:fs/promises");
         await stat(path);
         return true;
-      } catch {
-        return false;
-      }
-    }),
+      },
+      catch: () => false,
+    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
 
   readFile: (path) =>
     Effect.tryPromise({
@@ -182,15 +181,14 @@ export const FileSystemLive = Layer.succeed(FileSystem, {
     }),
 
   isDirectory: (path) =>
-    Effect.promise(async () => {
-      const { stat } = await import("node:fs/promises");
-      try {
+    Effect.tryPromise({
+      try: async () => {
+        const { stat } = await import("node:fs/promises");
         const s = await stat(path);
         return s.isDirectory();
-      } catch {
-        return false;
-      }
-    }),
+      },
+      catch: () => false,
+    }).pipe(Effect.catchAll(() => Effect.succeed(false))),
 
   glob: (pattern, cwd) =>
     Effect.tryPromise({
@@ -216,15 +214,14 @@ export const FileSystemLive = Layer.succeed(FileSystem, {
     }),
 
   getFileSize: (path) =>
-    Effect.promise(async () => {
-      const { stat } = await import("node:fs/promises");
-      try {
+    Effect.tryPromise({
+      try: async () => {
+        const { stat } = await import("node:fs/promises");
         const s = await stat(path);
         return s.size;
-      } catch {
-        return 0;
-      }
-    }),
+      },
+      catch: () => 0,
+    }).pipe(Effect.catchAll(() => Effect.succeed(0))),
 
   ensureDir: (dirPath) =>
     Effect.tryPromise({

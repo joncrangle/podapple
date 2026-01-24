@@ -5,7 +5,7 @@
  * Uses Bun.spawn for native process execution and parsing of 'diskutil activity'.
  */
 
-import { Context, Data, Effect, Layer, Option, Ref, Stream } from "effect";
+import { Context, Data, Effect, Either, Layer, Option, Ref, Stream } from "effect";
 import type { Drive } from "@/types/drive";
 import {
   getPlistBoolean,
@@ -81,34 +81,49 @@ function isExcludedVolume(info: PlistDict): boolean {
 }
 
 const runDiskutil = (args: string[]) =>
-  Effect.tryPromise({
-    try: async () => {
-      const finalArgs = ["diskutil"];
-      if (args[0] === "info") {
-        finalArgs.push("info", "-plist", ...args.slice(1));
-      } else {
-        finalArgs.push(...args, "-plist");
-      }
+  Effect.gen(function* () {
+    const finalArgs = ["diskutil"];
+    if (args[0] === "info") {
+      finalArgs.push("info", "-plist", ...args.slice(1));
+    } else {
+      finalArgs.push(...args, "-plist");
+    }
 
-      const proc = Bun.spawn(finalArgs, {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
+    const { output, exitCode } = yield* Effect.tryPromise({
+      try: async () => {
+        const proc = Bun.spawn(finalArgs, {
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const output = await new Response(proc.stdout).text();
+        const exitCode = await proc.exited;
+        return { output, exitCode };
+      },
+      catch: (cause) => new DriveDetectionError({ cause }),
+    });
 
-      const output = await new Response(proc.stdout).text();
-      const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      return yield* Effect.fail(
+        new DriveDetectionError({ cause: new Error(`diskutil exited with code ${exitCode}`) }),
+      );
+    }
 
-      if (exitCode !== 0) {
-        throw new Error(`diskutil exited with code ${exitCode}`);
-      }
+    const plistResult = parsePlist(output);
+    if (Either.isLeft(plistResult)) {
+      return yield* Effect.fail(
+        new DriveDetectionError({
+          cause: new Error("Invalid plist output", { cause: plistResult.left }),
+        }),
+      );
+    }
+    const parsed = plistResult.right;
 
-      const parsed = parsePlist(output);
-      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        return parsed as PlistDict;
-      }
-      throw new Error("Invalid plist output");
-    },
-    catch: (cause) => new DriveDetectionError({ cause }),
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as PlistDict;
+    }
+    return yield* Effect.fail(
+      new DriveDetectionError({ cause: new Error("Invalid plist output: not a dict") }),
+    );
   });
 
 const getDriveDetails = (identifier: string) =>
@@ -153,15 +168,17 @@ const getDriveDetails = (identifier: string) =>
 
 /**
  * Parses a line from `diskutil activity` output.
- * Looking for ***DiskAppeared or ***DiskDisappeared events.
+ * Looking for ***DiskAppeared, ***DiskDisappeared, or ***DiskDescriptionChanged events.
  */
 function parseActivityLine(
   line: string,
-): Option.Option<{ type: "Appeared" | "Disappeared"; bsdName: string }> {
-  const match = line.match(/^\*\*\*(DiskAppeared|DiskDisappeared)\s+\('([^']+)',/);
+): Option.Option<{ type: "Appeared" | "Disappeared" | "DescriptionChanged"; bsdName: string }> {
+  const match = line.match(
+    /^\*\*\*(DiskAppeared|DiskDisappeared|DiskDescriptionChanged)\s+\('([^']+)',/,
+  );
   if (!match || !match[1] || !match[2]) return Option.none();
   return Option.some({
-    type: match[1] as "Appeared" | "Disappeared",
+    type: match[1] as "Appeared" | "Disappeared" | "DescriptionChanged",
     bsdName: match[2],
   });
 }
@@ -214,47 +231,47 @@ export const DriveDetectionLive = Layer.effect(
           const driveIdMap = yield* Ref.make(new Map<string, string>());
           yield* Ref.set(scanningRef, true);
 
-          // Spawn process
-          const process = Bun.spawn(["diskutil", "activity"], {
-            stdout: "pipe",
-            stderr: "pipe",
-          });
-
-          const stream = Stream.fromAsyncIterable(
-            (async function* () {
-              const reader = process.stdout.getReader();
-              const decoder = new TextDecoder();
-              let buffer = "";
-
-              try {
-                while (true) {
-                  const { done, value } = await reader.read();
-                  if (done) break;
-                  buffer += decoder.decode(value, { stream: true });
-                  const lines = buffer.split("\n");
-                  buffer = lines.pop() ?? "";
-                  for (const line of lines) {
-                    if (line.trim()) yield line;
-                  }
-                }
-              } finally {
-                process.kill();
-              }
-            })(),
-            (e) => new DriveDetectionError({ cause: e }),
-          );
-
-          return stream.pipe(
+          return Stream.acquireRelease(
+            Effect.try({
+              try: () =>
+                Bun.spawn(["diskutil", "activity"], {
+                  stdout: "pipe",
+                  stderr: "pipe",
+                }),
+              catch: (e) => new DriveDetectionError({ cause: e }),
+            }),
+            (process) => Effect.sync(() => process.kill()),
+          ).pipe(
+            Stream.flatMap((process) =>
+              Stream.fromReadableStream(
+                () => process.stdout,
+                (e) => new DriveDetectionError({ cause: e }),
+              ),
+            ),
+            Stream.decodeText(),
+            Stream.splitLines,
             Stream.map(parseActivityLine),
             Stream.filterMap((o) => o),
             Stream.mapEffect((event) =>
               Effect.gen(function* () {
-                if (event.type === "Appeared") {
+                if (event.type === "Appeared" || event.type === "DescriptionChanged") {
                   const details = yield* getDriveDetails(event.bsdName);
                   if (Option.isSome(details)) {
                     const drive = details.value;
                     yield* Ref.update(driveIdMap, (map) => map.set(event.bsdName, drive.id));
                     return Option.some({ _tag: "Appeared", drive } as DriveEvent);
+                  }
+                  // If DescriptionChanged and now invalid (e.g. unmounted), we might want to remove it
+                  if (event.type === "DescriptionChanged") {
+                    const map = yield* Ref.get(driveIdMap);
+                    const driveId = map.get(event.bsdName);
+                    if (driveId) {
+                      yield* Ref.update(driveIdMap, (map) => {
+                        map.delete(event.bsdName);
+                        return map;
+                      });
+                      return Option.some({ _tag: "Disappeared", driveId } as DriveEvent);
+                    }
                   }
                   return Option.none();
                 } else {

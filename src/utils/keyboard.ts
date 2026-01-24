@@ -1,4 +1,4 @@
-import type { AppState } from "@/types/keyboard";
+import type { AppView } from "@/types/keyboard";
 
 const NAVIGATION_KEYS = new Set(["j", "k", "up", "down"]);
 
@@ -11,17 +11,14 @@ export function isNavigationKey(key: string): boolean {
  * Matches original podcasts-sync layout.
  */
 export function getFooterShortcuts(
-  view: AppState["view"],
+  view: AppView,
   debugEnabled = false,
 ): Array<Array<{ key: string; label: string }>> {
   const line1: Array<{ key: string; label: string }> = [];
   const line2: Array<{ key: string; label: string }> = [];
 
   switch (view) {
-    case "main":
     case "normal":
-    case "podcasts":
-    case "episodes":
       line1.push(
         { key: "↑/↓", label: "navigate" },
         { key: "tab", label: "switch list" },
@@ -36,9 +33,7 @@ export function getFooterShortcuts(
       line2.push({ key: "ctrl+t", label: "change theme" }, { key: "q", label: "quit" });
       break;
     case "confirm":
-    case "drives":
     case "driveSelection":
-    case "sync":
     case "syncing":
     case "themeSelection":
     case "transferring":
