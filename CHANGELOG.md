@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/joncrangle/podapple/compare/v0.1.1...v0.1.2) (2026-01-24)
+
+
+### Styles
+
+* **ui:** title no border ([d5a9fad](https://github.com/joncrangle/podapple/commit/d5a9fad7b4b32d880a20f6d1c5a417f80157137a))
+
 ## [0.1.1](https://github.com/joncrangle/podapple/compare/v0.1.0...v0.1.1) (2026-01-24)
 
 
