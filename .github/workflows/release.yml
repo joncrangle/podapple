@@ -1,8 +1,17 @@
-name: Release
+name: Build Assets
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag to build for (e.g. v0.1.0)'
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag_name:
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -38,13 +47,15 @@ jobs:
 
       - name: Package
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
+          # Use passed tag name
+          VERSION="${{ inputs.tag_name }}"
+          VERSION=${VERSION#v}
           ARCHIVE_NAME="podapple_${VERSION}_${{ matrix.suffix }}.tar.gz"
-
+          
           cd dist
           tar -czf "../$ARCHIVE_NAME" podapple
           cd ..
-
+          
           echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
 
       - name: Upload Artifact
@@ -54,8 +65,8 @@ jobs:
           path: ${{ env.ARCHIVE_NAME }}
           retention-days: 1
 
-  release:
-    name: Create Release
+  upload:
+    name: Upload Assets
     runs-on: ubuntu-latest
     needs: build
     steps:
@@ -67,15 +78,15 @@ jobs:
       - name: Generate Checksums
         run: |
           cd artifacts
-          # Flatten artifacts (move from subdirs to root of artifacts/)
           find . -type f -name "*.tar.gz" -exec mv {} . \;
-
           shasum -a 256 *.tar.gz > checksums.txt
           cat checksums.txt
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ inputs.tag_name }}
           files: |
             artifacts/*.tar.gz
             artifacts/checksums.txt
+
