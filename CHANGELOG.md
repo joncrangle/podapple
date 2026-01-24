@@ -5,6 +5,14 @@
 
 ### Bug Fixes
 
+* **ci:** reliably generate homebrew formula using cat ([6094092](https://github.com/joncrangle/podapple/commit/60940921ec9e08a76262fcea6af4c877d722efa6))
+* **ui:** fix layout and remove legacy types ([6e3b8f6](https://github.com/joncrangle/podapple/commit/6e3b8f64e6f545d6a3371ca2e8d2c38a6b6dd6f7))
+
+## [0.1.1](https://github.com/joncrangle/podapple/compare/v0.1.0...v0.1.1) (2026-01-24)
+
+
+### Bug Fixes
+
 * **ui:** fix layout and remove legacy types ([6e3b8f6](https://github.com/joncrangle/podapple/commit/6e3b8f64e6f545d6a3371ca2e8d2c38a6b6dd6f7))
 
 ## 0.1.0 (2026-01-24)
