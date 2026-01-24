@@ -7,6 +7,7 @@ describe("formatDriveInfo", () => {
     const drive: Drive = {
       id: "1",
       name: "WALKMAN",
+      bsdName: "disk2s1",
       mountPoint: "/Volumes/WALKMAN",
       totalSpace: 32 * 1024 * 1024 * 1024,
       freeSpace: 15.2 * 1024 * 1024 * 1024,
@@ -18,6 +19,7 @@ describe("formatDriveInfo", () => {
     const drive: Drive = {
       id: "2",
       name: "USB",
+      bsdName: "disk3s1",
       mountPoint: "/Volumes/USB",
       totalSpace: 8 * 1024 * 1024 * 1024,
       freeSpace: 256 * 1024 * 1024,

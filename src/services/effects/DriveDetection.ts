@@ -125,6 +125,7 @@ const getDriveDetails = (identifier: string) =>
     if (!mountPoint) return Option.none();
 
     const volumeName = getPlistString(info, "VolumeName") ?? mountPoint.split("/").pop() ?? "";
+    const bsdName = getPlistString(info, "DeviceIdentifier") ?? "";
     const totalSpace = getPlistNumber(info, "TotalSize") ?? 0;
 
     // FreeSpace might be under different keys depending on filesystem
@@ -149,6 +150,7 @@ const getDriveDetails = (identifier: string) =>
     return Option.some({
       id: volumeName, // Using VolumeName as ID for now
       name: volumeName,
+      bsdName,
       mountPoint,
       totalSpace,
       freeSpace: freeSpace ?? 0,
@@ -189,145 +191,169 @@ export function parseActivityLine(
 export const DriveDetectionLive = Layer.effect(
   DriveDetection,
   Effect.gen(function* () {
-    // Shared state for scanning status (if needed, but stream tracks it implicitly?)
-    // Original had isScanning()
+    // Shared state for scanning status
     const scanningRef = yield* Ref.make(false);
 
-    return DriveDetection.of({
-      isScanning: () => Ref.get(scanningRef),
-
-      scanDrives: () =>
-        Effect.gen(function* (_) {
-          const volumeNames = yield* _(
-            Effect.tryPromise({
-              try: async () => {
-                const glob = new Bun.Glob("*");
-                const names: string[] = [];
-                for await (const name of glob.scan({ cwd: "/Volumes", onlyFiles: false })) {
-                  if (!EXCLUDED_NAMES.has(name)) {
-                    names.push(name);
-                  }
+    const scanDrives = () =>
+      Effect.gen(function* (_) {
+        const volumeNames = yield* _(
+          Effect.tryPromise({
+            try: async () => {
+              const glob = new Bun.Glob("*");
+              const names: string[] = [];
+              for await (const name of glob.scan({ cwd: "/Volumes", onlyFiles: false })) {
+                if (!EXCLUDED_NAMES.has(name)) {
+                  names.push(name);
                 }
-                return names;
-              },
-              catch: (cause) => new DriveDetectionError({ cause }),
+              }
+              return names;
+            },
+            catch: (cause) => new DriveDetectionError({ cause }),
+          }),
+        );
+
+        const drives = yield* _(
+          Effect.forEach(volumeNames, (name) => getDriveDetails(`/Volumes/${name}`), {
+            concurrency: "inherit",
+          }),
+        );
+
+        return drives.filter(Option.isSome).map((opt) => opt.value);
+      });
+
+    const getDriveInfo = (mountPoint: string) =>
+      getDriveDetails(mountPoint).pipe(Effect.map((opt) => Option.getOrNull(opt)));
+
+    const driveEvents = Stream.unwrap(
+      Effect.gen(function* () {
+        const initialDrives = yield* scanDrives();
+        const driveIdMap = yield* Ref.make(
+          new Map<string, string>(initialDrives.map((d) => [d.bsdName, d.id])),
+        );
+        const lastProcessedMap = yield* Ref.make(new Map<string, number>());
+        yield* Ref.set(scanningRef, true);
+
+        return Stream.acquireRelease(
+          Effect.sync(() =>
+            Bun.spawn(["diskutil", "activity"], {
+              stdout: "pipe",
+              stderr: "pipe",
             }),
-          );
+          ),
+          (process) => Effect.sync(() => process.kill()),
+        ).pipe(
+          Stream.flatMap((process) =>
+            Stream.fromAsyncIterable(
+              (async function* () {
+                const reader = process.stdout.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
 
-          const drives = yield* _(
-            Effect.forEach(volumeNames, (name) => getDriveDetails(`/Volumes/${name}`), {
-              concurrency: "inherit",
-            }),
-          );
-
-          return drives.filter(Option.isSome).map((opt) => opt.value);
-        }),
-
-      getDriveInfo: (mountPoint) =>
-        getDriveDetails(mountPoint).pipe(Effect.map((opt) => Option.getOrNull(opt))),
-
-      driveEvents: Stream.unwrap(
-        Effect.gen(function* () {
-          const driveIdMap = yield* Ref.make(new Map<string, string>());
-          yield* Ref.set(scanningRef, true);
-
-          return Stream.acquireRelease(
-            Effect.sync(() =>
-              Bun.spawn(["diskutil", "activity"], {
-                stdout: "pipe",
-                stderr: "pipe",
-              }),
-            ),
-            (process) => Effect.sync(() => process.kill()),
-          ).pipe(
-            Stream.flatMap((process) =>
-              Stream.fromAsyncIterable(
-                (async function* () {
-                  const reader = process.stdout.getReader();
-                  const decoder = new TextDecoder();
-                  let buffer = "";
-
-                  try {
-                    while (true) {
-                      const { done, value } = await reader.read();
-                      if (done) break;
-                      buffer += decoder.decode(value, { stream: true });
-                      const lines = buffer.split("\n");
-                      buffer = lines.pop() ?? "";
-                      for (const line of lines) {
-                        if (line.trim()) yield line;
-                      }
+                try {
+                  while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() ?? "";
+                    for (const line of lines) {
+                      if (line.trim()) yield line;
                     }
-                  } finally {
-                    reader.releaseLock();
                   }
-                })(),
-                (e) => new DriveDetectionError({ cause: e }),
-              ),
+                } finally {
+                  reader.releaseLock();
+                }
+              })(),
+              (e) => new DriveDetectionError({ cause: e }),
             ),
-            Stream.map(parseActivityLine),
-            Stream.filterMap((o) => o),
-            Stream.mapEffect((event) =>
-              Effect.gen(function* () {
-                const map = yield* Ref.get(driveIdMap);
+          ),
+          Stream.map(parseActivityLine),
+          Stream.filterMap((o) => o),
+          Stream.mapEffect((event) =>
+            Effect.gen(function* () {
+              const now = Date.now();
+              const lastProcessed = (yield* Ref.get(lastProcessedMap)).get(event.bsdName) ?? 0;
+              const map = yield* Ref.get(driveIdMap);
 
-                if (event.type === "Appeared") {
-                  if (map.has(event.bsdName)) return Option.none();
+              // Skip redundant processing within 2 seconds for Changed events
+              if (event.type === "Changed" && now - lastProcessed < 2000) {
+                return Option.none();
+              }
 
-                  const details = yield* getDriveDetails(event.bsdName);
-                  if (Option.isSome(details)) {
-                    const drive = details.value;
-                    yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
-                    return Option.some({ _tag: "Appeared", drive } as DriveEvent);
-                  }
+              if (event.type === "Appeared") {
+                if (map.has(event.bsdName) && now - lastProcessed < 2000) {
                   return Option.none();
                 }
 
-                if (event.type === "Disappeared") {
-                  const driveId = map.get(event.bsdName);
-                  if (driveId) {
-                    yield* Ref.update(driveIdMap, (m) => {
-                      const newMap = new Map(m);
-                      newMap.delete(event.bsdName);
-                      return newMap;
-                    });
-                    return Option.some({ _tag: "Disappeared", driveId } as DriveEvent);
-                  }
-                  return Option.none();
-                }
-
-                // Changed - Handle DiskDescriptionChanged
                 const details = yield* getDriveDetails(event.bsdName);
-                const existingDriveId = map.get(event.bsdName);
+                yield* Ref.update(lastProcessedMap, (m) => new Map(m).set(event.bsdName, now));
 
                 if (Option.isSome(details)) {
                   const drive = details.value;
-                  // Update mapping and emit Appeared (which components handle as upsert)
                   yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
                   return Option.some({ _tag: "Appeared", drive } as DriveEvent);
                 }
+                return Option.none();
+              }
 
-                // If details are no longer found but we were tracking it, it disappeared
-                if (existingDriveId) {
+              if (event.type === "Disappeared") {
+                const driveId = map.get(event.bsdName);
+                if (driveId) {
                   yield* Ref.update(driveIdMap, (m) => {
                     const newMap = new Map(m);
                     newMap.delete(event.bsdName);
                     return newMap;
                   });
-                  return Option.some({
-                    _tag: "Disappeared",
-                    driveId: existingDriveId,
-                  } as DriveEvent);
+                  yield* Ref.update(lastProcessedMap, (m) => {
+                    const newMap = new Map(m);
+                    newMap.delete(event.bsdName);
+                    return newMap;
+                  });
+                  return Option.some({ _tag: "Disappeared", driveId } as DriveEvent);
                 }
-
                 return Option.none();
-              }),
-            ),
-            Stream.filterMap((o) => o),
-            Stream.ensuring(Ref.set(scanningRef, false)),
-          );
-        }),
-      ),
+              }
+
+              // Changed - Handle DiskDescriptionChanged
+              const details = yield* getDriveDetails(event.bsdName);
+              yield* Ref.update(lastProcessedMap, (m) => new Map(m).set(event.bsdName, now));
+
+              const existingDriveId = map.get(event.bsdName);
+
+              if (Option.isSome(details)) {
+                const drive = details.value;
+                // Update mapping and emit Appeared (which components handle as upsert)
+                yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
+                return Option.some({ _tag: "Appeared", drive } as DriveEvent);
+              }
+
+              // If details are no longer found but we were tracking it, it disappeared
+              if (existingDriveId) {
+                yield* Ref.update(driveIdMap, (m) => {
+                  const newMap = new Map(m);
+                  newMap.delete(event.bsdName);
+                  return newMap;
+                });
+                return Option.some({
+                  _tag: "Disappeared",
+                  driveId: existingDriveId,
+                } as DriveEvent);
+              }
+
+              return Option.none();
+            }),
+          ),
+          Stream.filterMap((o) => o),
+          Stream.ensuring(Ref.set(scanningRef, false)),
+        );
+      }),
+    );
+
+    return DriveDetection.of({
+      isScanning: () => Ref.get(scanningRef),
+      scanDrives,
+      getDriveInfo,
+      driveEvents,
     });
   }),
 );
