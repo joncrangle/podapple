@@ -150,7 +150,11 @@ const App = () => {
       </Show>
 
       <Show when={state.appView === "debug"}>
-        <DebugPopup visible={true} messages={state.debugMessages} />
+        <DebugPopup
+          visible={true}
+          messages={state.debugMessages}
+          onClose={() => actions.setAppView("normal")}
+        />
       </Show>
 
       <Show when={state.appView === "themeSelection"}>

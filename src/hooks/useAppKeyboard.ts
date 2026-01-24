@@ -202,6 +202,14 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
         }
         return;
       }
+
+      if (key === "x") {
+        if (Bun.env.DEBUG === "true") {
+          actions.setDebugMenuIndex(Math.max(0, state.debugMessages.length - 1));
+          actions.setAppView("debug");
+        }
+        return;
+      }
     }
 
     // Drive selection view
@@ -248,6 +256,24 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
       }
       if (key === "escape" || key === "n") {
         actions.setAppView("normal");
+        return;
+      }
+    }
+
+    // Debug popup
+    if (view === "debug") {
+      if (key === "escape") {
+        actions.setAppView("normal");
+        return;
+      }
+
+      if (key === "up" || key === "k") {
+        actions.setDebugMenuIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+
+      if (key === "down" || key === "j") {
+        actions.setDebugMenuIndex((i) => Math.min(state.debugMessages.length - 1, i + 1));
         return;
       }
     }

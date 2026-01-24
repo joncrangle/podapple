@@ -1,7 +1,6 @@
-import { For, Show } from "solid-js";
+import { state } from "@/store";
 import { Colors } from "@/theme/colors";
-import { Footer } from "./Footer";
-import { Modal } from "./Modal";
+import { Selector } from "./Selector";
 
 export interface DebugMessage {
   timestamp: number;
@@ -12,11 +11,10 @@ export interface DebugMessage {
 export interface DebugPopupProps {
   visible: boolean;
   messages: DebugMessage[];
+  onClose: () => void;
 }
 
 export function DebugPopup(props: DebugPopupProps) {
-  const maxVisibleMessages = 15;
-
   const getMessageColor = (type: DebugMessage["type"]) => {
     switch (type) {
       case "error":
@@ -38,27 +36,20 @@ export function DebugPopup(props: DebugPopupProps) {
   };
 
   return (
-    <Modal title="Debug Log" visible={props.visible} width={80}>
-      <box flexDirection="column">
-        {/* Messages list */}
-        <box flexDirection="column" height={maxVisibleMessages}>
-          <Show
-            when={props.messages.length > 0}
-            fallback={<text style={{ fg: Colors.text.secondary }}>No debug messages</text>}
-          >
-            <For each={props.messages.slice(-maxVisibleMessages)}>
-              {(msg) => (
-                <box>
-                  <text style={{ fg: Colors.text.dim }}>[{formatTimestamp(msg.timestamp)}] </text>
-                  <text style={{ fg: getMessageColor(msg.type) }}>{msg.message}</text>
-                </box>
-              )}
-            </For>
-          </Show>
-        </box>
-
-        <Footer shortcuts={[[{ key: "esc", label: "close" }]]} />
-      </box>
-    </Modal>
+    <Selector
+      title="Debug Log"
+      visible={props.visible}
+      items={props.messages}
+      emptyText="No debug messages"
+      width="85%"
+      height="85%"
+      selectedIndex={state.debugMenuIndex}
+      onClose={props.onClose}
+      onSelect={() => {}}
+      formatItem={(msg) => ({
+        name: `[${formatTimestamp(msg.timestamp)}] ${msg.message}`,
+        color: getMessageColor(msg.type),
+      })}
+    />
   );
 }

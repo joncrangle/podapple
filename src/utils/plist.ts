@@ -4,6 +4,8 @@
  * Parses Apple plist XML format from diskutil output.
  */
 
+import { Either } from "effect";
+
 export type PlistValue =
   | string
   | number
@@ -20,7 +22,7 @@ export interface PlistDict {
  * Parses Apple plist XML format from diskutil output.
  * Supports dict, array, string, integer, real, boolean, date, and data tags.
  */
-export function parsePlist(xml: string): PlistValue {
+export function parsePlist(xml: string): Either.Either<PlistValue, Error> {
   const content = xml
     .replace(/<\?xml[^?]*\?>/g, "")
     .replace(/<!DOCTYPE[^>]*>/g, "")
@@ -28,11 +30,15 @@ export function parsePlist(xml: string): PlistValue {
 
   const plistMatch = content.match(/<plist[^>]*>([\s\S]*)<\/plist>/);
   if (!plistMatch) {
-    throw new Error("Invalid plist: no <plist> element found");
+    return Either.left(new Error("Invalid plist: no <plist> element found"));
   }
 
   const innerContent = plistMatch[1]?.trim() ?? "";
-  return parseElement(innerContent);
+  try {
+    return Either.right(parseElement(innerContent));
+  } catch (error) {
+    return Either.left(error instanceof Error ? error : new Error(String(error)));
+  }
 }
 
 function parseElement(xml: string): PlistValue {
