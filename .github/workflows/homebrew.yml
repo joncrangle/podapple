@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Tag to update formula for (e.g. v0.1.0)'
+        description: "Tag to update formula for (e.g. v0.1.0)"
         required: true
         type: string
 
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Version Info
         id: version
@@ -40,33 +40,33 @@ jobs:
           TAG=${{ steps.version.outputs.tag }}
           VERSION=${{ steps.version.outputs.version }}
           CHECKSUMS_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/checksums.txt"
-          
+
           echo "Downloading checksums.txt from $CHECKSUMS_URL..."
           curl -L -f -o checksums.txt "$CHECKSUMS_URL"
-          
+
           # Filenames defined in release.yml
           FILE_ARM="podapple_${VERSION}_Darwin_arm64.tar.gz"
           FILE_INTEL="podapple_${VERSION}_Darwin_x86_64.tar.gz"
-          
+
           # Extract SHAs from checksums.txt
           ARM_SHA=$(grep "$FILE_ARM" checksums.txt | awk '{print $1}')
           INTEL_SHA=$(grep "$FILE_INTEL" checksums.txt | awk '{print $1}')
-          
+
           if [ -z "$ARM_SHA" ]; then
             echo "Error: Could not find SHA for $FILE_ARM"
             exit 1
           fi
-          
+
           if [ -z "$INTEL_SHA" ]; then
             echo "Error: Could not find SHA for $FILE_INTEL"
             exit 1
           fi
-          
+
           echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
           echo "intel_sha=$INTEL_SHA" >> $GITHUB_OUTPUT
 
       - name: Clone Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: joncrangle/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -79,7 +79,7 @@ jobs:
           TAG=${{ steps.version.outputs.tag }}
           ARM_SHA=${{ steps.shas.outputs.arm_sha }}
           INTEL_SHA=${{ steps.shas.outputs.intel_sha }}
-          
+
           cat > $FORMULA <<EOF
           class PodApple < Formula
             desc "A modern, terminal-based Apple Podcasts synchronizer built for speed and simplicity."
@@ -111,13 +111,13 @@ jobs:
           cd tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           # Check for changes before committing
           if [[ -z $(git status -s) ]]; then
             echo "No changes to commit."
             exit 0
           fi
-          
+
           git add Formula/podapple.rb
           git commit -m "Update podapple to v${{ steps.version.outputs.version }}"
           git push
