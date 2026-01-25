@@ -1,4 +1,4 @@
-import { state } from "@/store";
+import { actions, state } from "@/store";
 import type { Drive } from "@/types/drive";
 import { formatDriveInfo } from "@/utils/drive";
 import { hasNerdFont } from "@/utils/terminal";
@@ -11,6 +11,7 @@ export interface DriveSelectorProps {
   isScanning?: boolean;
   onSelect: (drive: Drive) => void;
   onClose: () => void;
+  onShortcutClick?: (key: string) => void;
   onToggleFavorite?: (drive: Drive) => void;
 }
 
@@ -32,7 +33,9 @@ export function DriveSelector(props: DriveSelectorProps) {
       })}
       onSelect={props.onSelect}
       onClose={props.onClose}
+      onShortcutClick={props.onShortcutClick}
       selectedIndex={props.selectedIndex}
+      onIndexChange={(index) => actions.setDriveMenuIndex(index)}
       extraShortcuts={[{ key: "ctrl+f", label: "favorite" }]}
     />
   );

@@ -115,8 +115,22 @@ export const actions = {
   toggleMacSelection: (index: number) => {
     setState("macPodcasts", index, "selected", (s) => !s);
   },
+  toggleAllMacSelection: () => {
+    const allSelected = state.macPodcasts.every((p) => p.selected);
+    setState("macPodcasts", (prev) => prev.map((p) => ({ ...p, selected: !allSelected })));
+  },
+  clearMacSelection: () => {
+    setState("macPodcasts", (prev) => prev.map((p) => ({ ...p, selected: false })));
+  },
   toggleDriveSelection: (index: number) => {
     setState("drivePodcasts", index, "selected", (s) => !s);
+  },
+  toggleAllDriveSelection: () => {
+    const allSelected = state.drivePodcasts.every((p) => p.selected);
+    setState("drivePodcasts", (prev) => prev.map((p) => ({ ...p, selected: !allSelected })));
+  },
+  clearDriveSelection: () => {
+    setState("drivePodcasts", (prev) => prev.map((p) => ({ ...p, selected: false })));
   },
   resetState: () => setState(initialState),
 };

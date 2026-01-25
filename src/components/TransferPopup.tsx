@@ -15,6 +15,7 @@ export interface TransferPopupProps {
   bytesTransferred: number;
   totalBytes: number;
   speed: number;
+  onShortcutClick?: (key: string) => void;
 }
 
 /**
@@ -77,7 +78,10 @@ export function TransferPopup(props: TransferPopupProps) {
           </text>
         </box>
 
-        <Footer shortcuts={[[{ key: "esc", label: "cancel" }]]} />
+        <Footer
+          shortcuts={[[{ key: "esc", label: "cancel" }]]}
+          onShortcutClick={props.onShortcutClick}
+        />
       </box>
     </Modal>
   );

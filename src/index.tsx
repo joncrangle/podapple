@@ -15,11 +15,6 @@ import { getFooterShortcuts } from "@/utils/keyboard";
 import { DriveView } from "@/views/DriveView";
 import { PodcastView } from "@/views/PodcastView";
 
-// ============================================================================
-// CLI & Runtime Checks
-// ============================================================================
-
-// Runtime Guard
 if (typeof Bun === "undefined") {
   console.error("❌ Error: Runtime mismatch.");
   console.error(
@@ -47,9 +42,23 @@ if (args.includes("--version") || args.includes("-v")) {
  */
 const App = () => {
   const logic = useAppLogic();
-  useAppKeyboard(logic);
+  const { handleAction } = useAppKeyboard(logic);
   const terminalDimensions = useTerminalDimensions();
   const debugEnabled = Bun.env.DEBUG === "true";
+
+  const handleShortcutClick = (key: string) => {
+    let cleanKey = key.toLowerCase();
+    const isCtrl = cleanKey.startsWith("ctrl+");
+    cleanKey = cleanKey.replace("ctrl+", "");
+
+    // Map UI shortcut labels to internal key names used by handleAction
+    if (cleanKey === "esc") cleanKey = "escape";
+    if (cleanKey === "enter") cleanKey = "return";
+    if (cleanKey === "↑") cleanKey = "up";
+    if (cleanKey === "↓") cleanKey = "down";
+
+    handleAction(cleanKey, isCtrl);
+  };
 
   const driveInfo = createMemo(() => {
     const drive = state.currentDrive;
@@ -61,7 +70,6 @@ const App = () => {
     return getFooterShortcuts(state.appView, debugEnabled);
   });
 
-  // Calculate pane widths and flex-grow based on terminal width and focus
   const layout = createMemo<{
     macWidth: number | `${number}%` | "auto";
     driveWidth: number | `${number}%` | "auto";
@@ -96,25 +104,23 @@ const App = () => {
         debugEnabled={debugEnabled}
         lastKey={state.lastKey}
         terminalDimensions={terminalDimensions()}
-        height={terminalDimensions().height}
+        onDriveClick={() => handleAction("f")}
+        onDebugClick={() => handleAction("f1")}
       />
 
-      {/* Error message */}
       <Show when={state.errorMsg}>
         <box style={{ paddingLeft: 4 }}>
           <text style={{ fg: Colors.text.error }}>{state.errorMsg}</text>
         </box>
       </Show>
 
-      {/* Main content: two side-by-side lists */}
       <box flexDirection="row" flexGrow={1}>
-        <PodcastView width={layout().macWidth} flexGrow={layout().macGrow} />
-        <DriveView width={layout().driveWidth} flexGrow={layout().driveGrow} />
+        <PodcastView width={layout().macWidth} flexGrow={layout().macGrow} logic={logic} />
+        <DriveView width={layout().driveWidth} flexGrow={layout().driveGrow} logic={logic} />
       </box>
 
-      <Footer shortcuts={footerShortcuts()} />
+      <Footer shortcuts={footerShortcuts()} onShortcutClick={handleShortcutClick} />
 
-      {/* Popups */}
       <Show when={state.appView === "driveSelection"}>
         <DriveSelector
           drives={state.drives}
@@ -127,6 +133,7 @@ const App = () => {
             actions.setAppView("normal");
           }}
           onClose={() => actions.setAppView("normal")}
+          onShortcutClick={handleShortcutClick}
         />
       </Show>
 
@@ -139,6 +146,7 @@ const App = () => {
           bytesTransferred={state.transferProgress.bytesTransferred}
           totalBytes={state.transferProgress.totalBytes}
           speed={state.transferProgress.speed}
+          onShortcutClick={handleShortcutClick}
         />
       </Show>
 
@@ -146,6 +154,7 @@ const App = () => {
         <ConfirmPopup
           visible={true}
           fileCount={state.drivePodcasts.filter((ep) => ep.selected).length}
+          onShortcutClick={handleShortcutClick}
         />
       </Show>
 
@@ -154,11 +163,12 @@ const App = () => {
           visible={true}
           messages={state.debugMessages}
           onClose={() => actions.setAppView("normal")}
+          onShortcutClick={handleShortcutClick}
         />
       </Show>
 
       <Show when={state.appView === "themeSelection"}>
-        <ThemePicker logic={logic} />
+        <ThemePicker logic={logic} onShortcutClick={handleShortcutClick} />
       </Show>
     </box>
   );
@@ -167,4 +177,5 @@ const App = () => {
 render(App, {
   targetFps: 30,
   exitOnCtrlC: false, // We handle Ctrl+C ourselves for proper cleanup
+  useMouse: true,
 });

@@ -9,10 +9,12 @@ export interface ModalProps {
   height?: number | `${number}%` | "auto";
   maxHeight?: number | `${number}%` | "auto";
   children: JSX.Element;
+  onClose?: () => void;
 }
 
 export function Modal(props: ModalProps) {
   const terminal = useTerminalDimensions();
+  let isContentClick = false;
 
   const width = createMemo(() => {
     const w = props.width ?? 50;
@@ -28,6 +30,7 @@ export function Modal(props: ModalProps) {
 
   return (
     <Show when={props.visible}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: TUI component */}
       <box
         flexDirection="column"
         justifyContent="center"
@@ -38,9 +41,20 @@ export function Modal(props: ModalProps) {
         right={0}
         bottom={0}
         zIndex={999}
+        onMouseDown={() => {
+          if (!isContentClick) {
+            props.onClose?.();
+          }
+          isContentClick = false;
+        }}
       >
         {/* Modal content box */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: TUI component */}
         <box
+          // Prevent clicks from propagating to the overlay and closing the modal
+          onMouseDown={() => {
+            isContentClick = true;
+          }}
           flexDirection="column"
           width={width()}
           height={props.height}

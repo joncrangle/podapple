@@ -7,6 +7,7 @@ export interface EpisodeItemProps {
   episode: PodcastEpisode;
   isSelected: boolean;
   isFocused: boolean;
+  onClick?: () => void;
 }
 
 export function EpisodeItem(props: EpisodeItemProps) {
@@ -31,7 +32,6 @@ export function EpisodeItem(props: EpisodeItemProps) {
     return Colors.text.primary;
   };
 
-  // Description color based on selection state
   const getDescColor = () => {
     if (props.isSelected && props.isFocused) return Colors.list.focusedSelected;
     if (props.isSelected) return Colors.list.selected;
@@ -40,6 +40,7 @@ export function EpisodeItem(props: EpisodeItemProps) {
   };
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: TUI component
     <box
       flexDirection="column"
       border={["left"]}
@@ -48,6 +49,9 @@ export function EpisodeItem(props: EpisodeItemProps) {
       paddingLeft={1}
       paddingRight={1}
       marginBottom={1}
+      onMouseDown={() => {
+        props.onClick?.();
+      }}
     >
       <text style={{ fg: getTitleColor() }}>{title()}</text>
       <text style={{ fg: getDescColor() }}>{description()}</text>

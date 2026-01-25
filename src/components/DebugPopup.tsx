@@ -12,6 +12,7 @@ export interface DebugPopupProps {
   visible: boolean;
   messages: DebugMessage[];
   onClose: () => void;
+  onShortcutClick?: (key: string) => void;
 }
 
 export function DebugPopup(props: DebugPopupProps) {
@@ -45,6 +46,7 @@ export function DebugPopup(props: DebugPopupProps) {
       height="85%"
       selectedIndex={state.debugMenuIndex}
       onClose={props.onClose}
+      onShortcutClick={props.onShortcutClick}
       onSelect={() => {}}
       formatItem={(msg) => ({
         name: `[${formatTimestamp(msg.timestamp)}] ${msg.message}`,

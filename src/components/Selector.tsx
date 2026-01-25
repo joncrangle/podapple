@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { Colors } from "@/theme/colors";
 import { Footer } from "./Footer";
 import { Modal } from "./Modal";
@@ -15,7 +15,9 @@ export interface SelectorProps<T> {
   onSelect: (item: T) => void;
   onClose: () => void;
   onChange?: (item: T) => void;
+  onIndexChange?: (index: number) => void;
   selectedIndex?: number;
+  onShortcutClick?: (key: string) => void;
   extraShortcuts?: { key: string; label: string }[];
   width?: number | `${number}%` | "auto";
   height?: number | `${number}%` | "auto";
@@ -23,31 +25,24 @@ export interface SelectorProps<T> {
 
 export function Selector<T>(props: SelectorProps<T>) {
   const [internalIndex, setInternalIndex] = createSignal(0);
+  const [hoveredIndex, setHoveredIndex] = createSignal<number | null>(null);
 
-  const currentIndex = () =>
-    props.selectedIndex !== undefined ? props.selectedIndex : internalIndex();
+  const currentIndex = createMemo(() =>
+    props.selectedIndex !== undefined ? props.selectedIndex : internalIndex(),
+  );
 
-  // Reset index when visibility changes if not controlled
-  createEffect(() => {
-    if (props.visible && props.selectedIndex === undefined) {
-      setInternalIndex(0);
-    }
-  });
-
-  // Handle preview logic for uncontrolled mode
-  createEffect(() => {
-    if (
-      props.visible &&
-      props.onChange &&
-      props.items.length > 0 &&
-      props.selectedIndex === undefined
-    ) {
-      const item = props.items[internalIndex()];
-      if (item) {
-        props.onChange(item);
+  const handleInteraction = (index: number, item: T) => {
+    if (currentIndex() === index) {
+      props.onSelect(item);
+    } else {
+      if (props.onIndexChange) {
+        props.onIndexChange(index);
+      } else {
+        setInternalIndex(index);
+        props.onChange?.(item);
       }
     }
-  });
+  };
 
   return (
     <Modal
@@ -55,6 +50,7 @@ export function Selector<T>(props: SelectorProps<T>) {
       visible={props.visible}
       width={props.width ?? 70}
       height={props.height}
+      onClose={props.onClose}
     >
       <box flexDirection="column" gap={1} flexGrow={props.height ? 1 : 0}>
         <Show when={props.loading}>
@@ -80,21 +76,30 @@ export function Selector<T>(props: SelectorProps<T>) {
                 {(item, index) => {
                   const info = () => props.formatItem(item);
                   const isFocused = () => index() === currentIndex();
+                  const isHovered = () => index() === hoveredIndex();
 
                   return (
+                    // biome-ignore lint/a11y/noStaticElementInteractions: TUI component
+                    // biome-ignore lint/a11y/useKeyWithMouseEvents: TUI component
                     <box
                       flexDirection="column"
                       paddingLeft={1}
                       paddingRight={1}
                       border={["left"]}
                       borderStyle={isFocused() ? "heavy" : "single"}
-                      borderColor={isFocused() ? Colors.list.focused : Colors.border.unfocused}
+                      borderColor={
+                        isFocused() || isHovered() ? Colors.list.focused : Colors.border.unfocused
+                      }
+                      onMouseDown={() => handleInteraction(index(), item)}
+                      onMouseOver={() => setHoveredIndex(index())}
+                      onMouseOut={() => setHoveredIndex(null)}
                     >
                       <text
                         style={{
-                          fg: isFocused()
-                            ? Colors.list.focused
-                            : info().color || Colors.text.primary,
+                          fg:
+                            isFocused() || isHovered()
+                              ? Colors.list.focused
+                              : info().color || Colors.text.primary,
                         }}
                       >
                         {info().name}
@@ -126,6 +131,10 @@ export function Selector<T>(props: SelectorProps<T>) {
                 ...(props.extraShortcuts || []),
               ],
             ]}
+            onShortcutClick={(key) => {
+              if (key === "esc") props.onClose();
+              props.onShortcutClick?.(key);
+            }}
           />
         </Show>
       </box>

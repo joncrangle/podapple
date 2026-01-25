@@ -6,6 +6,7 @@ import { Selector } from "./Selector";
 
 interface ThemePickerProps {
   logic: ReturnType<typeof useAppLogic>;
+  onShortcutClick?: (key: string) => void;
 }
 
 export function ThemePicker(props: ThemePickerProps) {
@@ -39,9 +40,11 @@ export function ThemePicker(props: ThemePickerProps) {
       visible={true}
       items={themeNames}
       selectedIndex={state.themeMenuIndex}
+      onIndexChange={(index) => actions.setThemeMenuIndex(index)}
       formatItem={(name) => ({ name })}
       onSelect={handleSelect}
       onClose={handleClose}
+      onShortcutClick={props.onShortcutClick}
     />
   );
 }

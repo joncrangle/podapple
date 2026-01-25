@@ -7,6 +7,7 @@ export interface ConfirmPopupProps {
   visible: boolean;
   message?: string;
   fileCount?: number;
+  onShortcutClick?: (key: string) => void;
 }
 
 export function ConfirmPopup(props: ConfirmPopupProps) {
@@ -30,6 +31,7 @@ export function ConfirmPopup(props: ConfirmPopupProps) {
               { key: "n/esc", label: "no" },
             ],
           ]}
+          onShortcutClick={props.onShortcutClick}
         />
       </box>
     </Modal>

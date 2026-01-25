@@ -34,3 +34,17 @@ export function hasNerdFont(): boolean {
 
   return false;
 }
+
+/**
+ * Restores terminal state and exits the process.
+ */
+export function quitApp(renderer: { stop: () => void; destroy: () => void }) {
+  renderer.stop();
+  renderer.destroy();
+
+  // Clear screen, home cursor, and show cursor
+  process.stdout.write("\x1b[2J\x1b[H\x1b[?25h");
+
+  // Small delay to ensure stdout flushes before exit
+  setTimeout(() => process.exit(0), 50);
+}

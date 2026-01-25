@@ -13,6 +13,9 @@ export interface EpisodeListProps {
   loading?: boolean;
   width?: number | `${number}%` | "auto";
   flexGrow?: number;
+  onItemClick?: (index: number, episode: PodcastEpisode) => void;
+  onClick?: () => void;
+  onFooterAction?: (action: string) => void;
 }
 
 /**
@@ -26,10 +29,12 @@ export function EpisodeList(props: EpisodeListProps) {
   const backgroundColor = () => (props.focused ? Colors.focused : Colors.background);
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: TUI component
     <box
       flexDirection="column"
       flexGrow={props.flexGrow ?? 1}
-      flexBasis={0}
+      // biome-ignore lint/suspicious/noExplicitAny: flexBasis in opentui types is too restrictive
+      flexBasis={(props.width ?? "50%") as any}
       flexShrink={1}
       maxHeight="100%"
       width={props.width ?? "50%"}
@@ -38,8 +43,8 @@ export function EpisodeList(props: EpisodeListProps) {
       borderStyle="rounded"
       borderColor={borderColor()}
       style={{ marginLeft: 1, marginRight: 1 }}
+      onMouseDown={() => props.onClick?.()}
     >
-      {/* Title bar */}
       <box
         height={1}
         style={{
@@ -54,7 +59,6 @@ export function EpisodeList(props: EpisodeListProps) {
         <text style={{ fg: Colors.header.text }}>{props.title}</text>
       </box>
 
-      {/* Episode list area */}
       <scrollbox
         flexGrow={1}
         ref={scrollBoxRef}
@@ -96,6 +100,7 @@ export function EpisodeList(props: EpisodeListProps) {
                     episode={episode}
                     isSelected={episode.selected}
                     isFocused={props.focused && index() === props.selectedIndex}
+                    onClick={() => props.onItemClick?.(index(), episode)}
                   />
                 )}
               </For>
@@ -104,7 +109,6 @@ export function EpisodeList(props: EpisodeListProps) {
         </Show>
       </scrollbox>
 
-      {/* Footer help area */}
       <Show when={props.focused}>
         <Show when={props.title.includes("Apple")}>
           <Footer
@@ -116,6 +120,7 @@ export function EpisodeList(props: EpisodeListProps) {
                 { key: "s", label: "sync" },
               ],
             ]}
+            onShortcutClick={(key) => props.onFooterAction?.(key)}
           />
         </Show>
         <Show when={props.title.includes("Drive")}>
@@ -128,6 +133,7 @@ export function EpisodeList(props: EpisodeListProps) {
                 { key: "d", label: "delete" },
               ],
             ]}
+            onShortcutClick={(key) => props.onFooterAction?.(key)}
           />
         </Show>
       </Show>

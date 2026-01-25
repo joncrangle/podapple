@@ -7,6 +7,8 @@ export interface HeaderProps {
   lastKey: string | null;
   terminalDimensions?: { width: number; height: number };
   height?: number;
+  onDriveClick?: () => void;
+  onDebugClick?: () => void;
 }
 
 export function Header(props: HeaderProps) {
@@ -38,12 +40,14 @@ export function Header(props: HeaderProps) {
         </Show>
       </Show>
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: TUI component */}
       <box
         flexGrow={1}
         flexBasis={0}
         flexDirection="column"
         justifyContent="flex-end"
         style={{ height: isSmallHeight() ? 1 : 4, paddingBottom: isSmallHeight() ? 0 : 1 }}
+        onMouseDown={() => props.onDebugClick?.()}
       >
         <Show when={props.debugEnabled}>
           <text style={{ fg: Colors.status.debug }}>DEBUG MODE</text>
@@ -70,6 +74,7 @@ export function Header(props: HeaderProps) {
         <text style={{ fg: Colors.status.app }}>PODAPPLE</text>
       </Show>
 
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: TUI component */}
       <box
         flexGrow={1}
         flexBasis={0}
@@ -77,6 +82,7 @@ export function Header(props: HeaderProps) {
         justifyContent="flex-end"
         alignItems="flex-end"
         style={{ height: isSmallHeight() ? 1 : 4, paddingBottom: isSmallHeight() ? 0 : 1 }}
+        onMouseDown={() => props.onDriveClick?.()}
       >
         <text style={{ fg: Colors.status.drive }}>{props.driveInfo || "No drives detected"}</text>
       </box>
