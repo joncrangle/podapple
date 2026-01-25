@@ -65,7 +65,7 @@ const initialState: AppState = {
   errorMsg: "",
   debugMessages: [],
   lastKey: null,
-  lastSavedTheme: "Catppuccin Mocha",
+  lastSavedTheme: "Catppuccin",
   favoriteDrives: [],
 };
 

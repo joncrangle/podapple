@@ -8,9 +8,24 @@
     },
     "theme": {
       "type": "string",
-      "enum": ["Catppuccin Mocha", "Tokyo Night", "Kanagawa", "Nord"],
+      "enum": [
+        "System",
+        "Catppuccin",
+        "Cyberdream",
+        "Dracula",
+        "Gruvbox",
+        "Kanagawa",
+        "Kanso",
+        "Monokai",
+        "Nord",
+        "One Dark",
+        "Rosé Pine",
+        "Solarized Dark",
+        "Tokyo Night",
+        "Zenburn"
+      ],
       "description": "The color theme to use",
-      "default": "Catppuccin Mocha"
+      "default": "Catppuccin"
     },
     "favoriteDrives": {
       "type": "array",

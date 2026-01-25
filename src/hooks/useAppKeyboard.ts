@@ -1,7 +1,6 @@
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { actions, state } from "@/store";
-import { setTheme } from "@/theme/colors";
-import { Themes } from "@/theme/themes";
+import { setTheme, Themes } from "@/theme/colors";
 import type { useAppLogic } from "./useAppLogic";
 
 const DEBOUNCE_INTERVAL = 50; // ms for most keys
@@ -72,12 +71,12 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
       }
 
       if (key === "down" || key === "j") {
-        actions.setThemeMenuIndex((i) => Math.min(Object.keys(Themes).length - 1, i + 1));
+        actions.setThemeMenuIndex((i) => Math.min(Themes.length - 1, i + 1));
         return;
       }
 
       if (key === "return" || key === "enter") {
-        const themeName = Object.keys(Themes)[state.themeMenuIndex];
+        const themeName = Themes[state.themeMenuIndex];
         if (themeName) {
           setTheme(themeName);
           logic.saveTheme(themeName);
@@ -101,8 +100,7 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
     if (view === "normal") {
       // Toggle theme selector
       if (ctrl && key === "t") {
-        const themeNames = Object.keys(Themes);
-        const currentIndex = themeNames.indexOf(state.lastSavedTheme);
+        const currentIndex = (Themes as string[]).indexOf(state.lastSavedTheme);
         actions.setThemeMenuIndex(currentIndex >= 0 ? currentIndex : 0);
         actions.setAppView("themeSelection");
         return;

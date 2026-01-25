@@ -1,8 +1,7 @@
 import { createEffect } from "solid-js";
 import type { useAppLogic } from "@/hooks/useAppLogic";
 import { actions, state } from "@/store";
-import { setTheme } from "@/theme/colors";
-import { Themes } from "@/theme/themes";
+import { setTheme, Themes } from "@/theme/colors";
 import { Selector } from "./Selector";
 
 interface ThemePickerProps {
@@ -10,7 +9,7 @@ interface ThemePickerProps {
 }
 
 export function ThemePicker(props: ThemePickerProps) {
-  const themeNames = Object.keys(Themes);
+  const themeNames = Themes;
 
   // Sync theme preview with selected index in store
   createEffect(() => {

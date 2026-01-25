@@ -251,7 +251,7 @@ export const useAppLogic = () => {
     }).pipe(
       Effect.catchAll(() => {
         actions.addDebugMessage("Failed to load settings", "error");
-        return Effect.succeed({ theme: "Catppuccin Mocha", favoriteDrives: [] });
+        return Effect.succeed({ theme: "Catppuccin", favoriteDrives: [] });
       }),
     );
 

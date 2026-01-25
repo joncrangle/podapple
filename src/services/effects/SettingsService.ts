@@ -40,10 +40,10 @@ export const SettingsServiceLive = Layer.effect(
           const text = new TextDecoder().decode(data);
           return JSON.parse(text) as Settings;
         } catch (_e) {
-          return { theme: "Catppuccin Mocha", favoriteDrives: [] };
+          return { theme: "Catppuccin", favoriteDrives: [] };
         }
       }),
-      Effect.catchAll(() => Effect.succeed({ theme: "Catppuccin Mocha", favoriteDrives: [] })),
+      Effect.catchAll(() => Effect.succeed({ theme: "Catppuccin", favoriteDrives: [] })),
     );
 
     const saveSettings = (newSettings: Partial<Settings>) =>
