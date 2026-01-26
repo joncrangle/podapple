@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.0](https://github.com/joncrangle/podapple/compare/v0.1.3...v0.2.0) (2026-01-26)
+
+
+### Features
+
+* **logging:** utilize logger to add more info for debug ([638509e](https://github.com/joncrangle/podapple/commit/638509e1566d18140ec876b5e9172addeaf7c779))
+* **themes:** add themes ([198b27a](https://github.com/joncrangle/podapple/commit/198b27a5570a4db4c41e4dd8f3e9bdc731d15d7f))
+* **ui:** mouse interactivity and usability improvements ([77de592](https://github.com/joncrangle/podapple/commit/77de59289f6ad8e8015ec102d4a19ec0b64a674f))
+
 ## [0.1.3](https://github.com/joncrangle/podapple/compare/v0.1.2...v0.1.3) (2026-01-24)
 
 
