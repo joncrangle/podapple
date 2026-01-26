@@ -35,11 +35,13 @@ import {
 /**
  * Base layer providing core services like FileSystem, Logger, etc.
  */
-const Base = Layer.mergeAll(FileSystemLive, LoggerLive, EpisodeMatcherLive, MetadataEditorLive);
+const Base = Layer.mergeAll(FileSystemLive, EpisodeMatcherLive, MetadataEditorLive).pipe(
+  Layer.provideMerge(LoggerLive),
+);
 /**
  * Detection layer for drive appearance/disappearance.
  */
-const Detection = DriveDetectionLive;
+const Detection = DriveDetectionLive.pipe(Layer.provide(Base));
 /**
  * Podcast layer for local database access.
  */
@@ -114,7 +116,7 @@ export const useAppLogic = () => {
       const episodes = mapPodcastsToEpisodes(podcasts);
 
       actions.setDrivePodcasts(episodes);
-      yield* logger.info(`Loaded ${episodes.length} drive episodes`);
+      yield* logger.debug(`Loaded ${episodes.length} drive episodes`);
 
       // Mark Mac podcasts that are on the drive
       const updated = markEpisodesOnDrive(state.macPodcasts, episodes);
@@ -156,7 +158,7 @@ export const useAppLogic = () => {
 
       actions.setDrives(sortedDrives);
       actions.setDriveMenuIndex(0);
-      yield* logger.info(`Found ${sortedDrives.length} drives`);
+      yield* logger.debug(`Found ${sortedDrives.length} drives`);
 
       // Auto-select favorited drive if none selected, or fallback to first
       if (sortedDrives.length > 0 && !state.currentDrive) {
@@ -206,7 +208,6 @@ export const useAppLogic = () => {
                 return 0;
               });
             });
-            actions.addDebugMessage(`Drive appeared: ${drive.name}`);
             yield* logger.info(`Drive appeared: ${drive.name} (${drive.id})`);
 
             // Auto-select if no drive is currently selected
@@ -220,7 +221,6 @@ export const useAppLogic = () => {
               actions.setCurrentDrive(null);
               actions.setDrivePodcasts([]);
             }
-            actions.addDebugMessage(`Drive disappeared: ${event.driveId}`);
             yield* logger.info(`Drive disappeared: ${event.driveId}`);
           }
         }),
@@ -302,7 +302,6 @@ export const useAppLogic = () => {
   const initialize = () =>
     run(
       Effect.gen(function* () {
-        const logger = yield* Logger;
         yield* loadSettings();
 
         // Start background drive listener
@@ -314,7 +313,6 @@ export const useAppLogic = () => {
         if (available) {
           const episodes = yield* podcastService.loadMacPodcasts;
           actions.setMacPodcasts(episodes);
-          yield* logger.info(`Loaded ${episodes.length} Mac podcasts`);
         }
       }).pipe(
         Effect.catchAll((err) => {

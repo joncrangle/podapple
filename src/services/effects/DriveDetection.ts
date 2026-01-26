@@ -14,6 +14,7 @@ import {
   type PlistDict,
   parsePlist,
 } from "@/utils/plist";
+import { Logger } from "./Logger";
 
 export class DriveDetectionError extends Data.TaggedError("DriveDetectionError")<{
   cause: unknown;
@@ -52,17 +53,19 @@ const EXCLUDED_NAMES = new Set([
 /**
  * Checks if a volume should be excluded from detection.
  * Filters out internal/system volumes and Time Machine backups.
+ * Returns the reason for exclusion if it should be excluded, or null otherwise.
  */
-function isExcludedVolume(info: PlistDict): boolean {
+function getExclusionReason(info: PlistDict): string | null {
   const volumeName = getPlistString(info, "VolumeName") ?? "";
   const mountPoint = getPlistString(info, "MountPoint") ?? "";
 
-  if (EXCLUDED_NAMES.has(volumeName)) return true;
-  if (!mountPoint) return true;
+  if (EXCLUDED_NAMES.has(volumeName)) return `In EXCLUDED_NAMES: ${volumeName}`;
+  if (!mountPoint) return "No mount point";
 
   // Skip Time Machine volumes
   const volumeType = getPlistString(info, "FilesystemType") ?? "";
-  if (volumeType === "apfs" && volumeName.toLowerCase().includes("time machine")) return true;
+  if (volumeType === "apfs" && volumeName.toLowerCase().includes("time machine"))
+    return "Time Machine volume";
 
   const internal = getPlistBoolean(info, "Internal");
   const removable = getPlistBoolean(info, "Removable");
@@ -73,11 +76,11 @@ function isExcludedVolume(info: PlistDict): boolean {
   if (internal === true && removable !== true && ejectable !== true) {
     const busProtocol = getPlistString(info, "BusProtocol") ?? "";
     if (busProtocol !== "USB" && busProtocol !== "Thunderbolt") {
-      return true;
+      return `Internal drive with non-removable protocol: ${busProtocol}`;
     }
   }
 
-  return false;
+  return null;
 }
 
 const runDiskutil = (args: string[]) =>
@@ -115,11 +118,15 @@ const runDiskutil = (args: string[]) =>
     catch: (cause) => new DriveDetectionError({ cause }),
   });
 
-const getDriveDetails = (identifier: string) =>
+const getDriveDetails = (identifier: string, logger: Context.Tag.Service<Logger>) =>
   Effect.gen(function* (_) {
     const info = yield* _(runDiskutil(["info", identifier]));
 
-    if (isExcludedVolume(info)) return Option.none();
+    const exclusionReason = getExclusionReason(info);
+    if (exclusionReason) {
+      yield* logger.debug(`Volume ${identifier} excluded: ${exclusionReason}`);
+      return Option.none();
+    }
 
     const mountPoint = getPlistString(info, "MountPoint");
     if (!mountPoint) return Option.none();
@@ -145,7 +152,10 @@ const getDriveDetails = (identifier: string) =>
     }
 
     // Filter out drives with 0 total space (likely unmounted or invalid)
-    if (totalSpace <= 0) return Option.none();
+    if (totalSpace <= 0) {
+      yield* logger.debug(`Volume ${identifier} excluded: zero total space`);
+      return Option.none();
+    }
 
     return Option.some({
       id: volumeName, // Using VolumeName as ID for now
@@ -191,38 +201,39 @@ export function parseActivityLine(
 export const DriveDetectionLive = Layer.effect(
   DriveDetection,
   Effect.gen(function* () {
+    const logger = yield* Logger;
     // Shared state for scanning status
     const scanningRef = yield* Ref.make(false);
 
     const scanDrives = () =>
-      Effect.gen(function* (_) {
-        const volumeNames = yield* _(
-          Effect.tryPromise({
-            try: async () => {
-              const glob = new Bun.Glob("*");
-              const names: string[] = [];
-              for await (const name of glob.scan({ cwd: "/Volumes", onlyFiles: false })) {
-                if (!EXCLUDED_NAMES.has(name)) {
-                  names.push(name);
-                }
+      Effect.gen(function* () {
+        const volumeNames = yield* Effect.tryPromise({
+          try: async () => {
+            const glob = new Bun.Glob("*");
+            const names: string[] = [];
+            for await (const name of glob.scan({ cwd: "/Volumes", onlyFiles: false })) {
+              if (!EXCLUDED_NAMES.has(name)) {
+                names.push(name);
               }
-              return names;
-            },
-            catch: (cause) => new DriveDetectionError({ cause }),
-          }),
-        );
+            }
+            return names;
+          },
+          catch: (cause) => new DriveDetectionError({ cause }),
+        });
 
-        const drives = yield* _(
-          Effect.forEach(volumeNames, (name) => getDriveDetails(`/Volumes/${name}`), {
+        const drives = yield* Effect.forEach(
+          volumeNames,
+          (name) => getDriveDetails(`/Volumes/${name}`, logger),
+          {
             concurrency: "inherit",
-          }),
+          },
         );
 
         return drives.filter(Option.isSome).map((opt) => opt.value);
       });
 
     const getDriveInfo = (mountPoint: string) =>
-      getDriveDetails(mountPoint).pipe(Effect.map((opt) => Option.getOrNull(opt)));
+      getDriveDetails(mountPoint, logger).pipe(Effect.map((opt) => Option.getOrNull(opt)));
 
     const driveEvents = Stream.unwrap(
       Effect.gen(function* () {
@@ -269,10 +280,12 @@ export const DriveDetectionLive = Layer.effect(
           ),
           Stream.map(parseActivityLine),
           Stream.filterMap((o) => o),
+          Stream.tap((event) => logger.debug(`diskutil event: ${event.type} ${event.bsdName}`)),
           Stream.mapEffect((event) =>
             Effect.gen(function* () {
               const now = Date.now();
-              const lastProcessed = (yield* Ref.get(lastProcessedMap)).get(event.bsdName) ?? 0;
+              const lastProcessedMapVal = yield* Ref.get(lastProcessedMap);
+              const lastProcessed = lastProcessedMapVal.get(event.bsdName) ?? 0;
               const map = yield* Ref.get(driveIdMap);
 
               // Skip redundant processing within 2 seconds for Changed events
@@ -285,7 +298,7 @@ export const DriveDetectionLive = Layer.effect(
                   return Option.none();
                 }
 
-                const details = yield* getDriveDetails(event.bsdName);
+                const details = yield* getDriveDetails(event.bsdName, logger);
                 yield* Ref.update(lastProcessedMap, (m) => new Map(m).set(event.bsdName, now));
 
                 if (Option.isSome(details)) {
@@ -315,7 +328,7 @@ export const DriveDetectionLive = Layer.effect(
               }
 
               // Handle DiskDescriptionChanged
-              const details = yield* getDriveDetails(event.bsdName);
+              const details = yield* getDriveDetails(event.bsdName, logger);
               yield* Ref.update(lastProcessedMap, (m) => new Map(m).set(event.bsdName, now));
 
               const existingDriveId = map.get(event.bsdName);

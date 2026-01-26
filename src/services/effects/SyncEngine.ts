@@ -9,6 +9,7 @@ import * as fs from "node:fs/promises";
 import { Context, Data, Effect, Layer, Option, Stream } from "effect";
 import { EpisodeMatcher } from "@/services/effects/EpisodeMatcher";
 import { FileSystem, type WriteError } from "@/services/effects/FileSystem";
+import { Logger } from "@/services/effects/Logger";
 import { MetadataEditor } from "@/services/effects/MetadataEditor";
 import type { Podcast } from "@/types/podcast";
 import type { CopyItem, SyncPlan, SyncProgress } from "@/types/sync";
@@ -152,182 +153,211 @@ const copyFileStream = (src: string, dest: string): Stream.Stream<number, CopyEr
 /**
  * Live implementation of SyncEngine.
  */
-export const SyncEngineLive = Layer.succeed(SyncEngine, {
-  createPlan: (mac, drivePath, driveIndex) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem;
-      const matcher = yield* EpisodeMatcher;
-      const toCopy: CopyItem[] = [];
-      let totalBytes = 0;
+export const SyncEngineLive = Layer.effect(
+  SyncEngine,
+  Effect.gen(function* () {
+    const logger = yield* Logger;
 
-      for (const podcast of mac) {
-        for (const episode of podcast.episodes) {
-          if (episode.synced || !episode.assetUrl) continue;
-          if (matcher.matchEpisode(podcast.title, episode, driveIndex)) continue;
+    return {
+      createPlan: (mac, drivePath, driveIndex) =>
+        Effect.gen(function* () {
+          yield* logger.info(`Creating sync plan for ${mac.length} podcasts on ${drivePath}`);
+          const fs = yield* FileSystem;
+          const matcher = yield* EpisodeMatcher;
+          const toCopy: CopyItem[] = [];
+          let totalBytes = 0;
 
-          const ext = fs.getExtension(episode.assetUrl);
-          const fullDestPath = formatDestPath(
-            drivePath,
-            podcast.title,
-            episode.title,
-            episode.publishedAt,
-            ext,
+          for (const podcast of mac) {
+            for (const episode of podcast.episodes) {
+              if (episode.synced || !episode.assetUrl) continue;
+              if (matcher.matchEpisode(podcast.title, episode, driveIndex)) continue;
+
+              const ext = fs.getExtension(episode.assetUrl);
+              const fullDestPath = formatDestPath(
+                drivePath,
+                podcast.title,
+                episode.title,
+                episode.publishedAt,
+                ext,
+              );
+
+              const dSize = yield* fs.getFileSize(fullDestPath);
+              if (dSize > 0) continue;
+
+              const sSize = yield* fs.getFileSize(episode.assetUrl);
+              toCopy.push({
+                episode,
+                podcast,
+                sourcePath: episode.assetUrl,
+                destPath: fullDestPath,
+                size: sSize,
+              });
+              totalBytes += sSize;
+            }
+          }
+          const plan: SyncPlan = { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes };
+          yield* logger.info(
+            `Sync plan created: ${plan.totalFiles} files to copy, ${plan.totalBytes} bytes total`,
           );
+          return plan;
+        }).pipe(Effect.mapError((cause) => new PlanError({ cause }))),
 
-          const dSize = yield* fs.getFileSize(fullDestPath);
-          if (dSize > 0) continue;
+      execute: (plan, _destPath) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            yield* logger.info(`Executing sync plan: ${plan.totalFiles} files to copy`);
+            const startTime = Date.now();
+            let bytesWritten = 0;
 
-          const sSize = yield* fs.getFileSize(episode.assetUrl);
-          toCopy.push({
-            episode,
-            podcast,
-            sourcePath: episode.assetUrl,
-            destPath: fullDestPath,
-            size: sSize,
-          });
-          totalBytes += sSize;
-        }
-      }
-      const plan: SyncPlan = { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes };
-      return plan;
-    }).pipe(Effect.mapError((cause) => new PlanError({ cause }))),
+            return Stream.fromIterable(plan.toCopy).pipe(
+              Stream.zipWithIndex,
+              Stream.flatMap(([item, i]) => {
+                const destDir = item.destPath.substring(0, item.destPath.lastIndexOf("/"));
 
-  execute: (plan, _destPath) =>
-    Stream.suspend(
-      (): Stream.Stream<SyncProgress, CopyError | WriteError, FileSystem | MetadataEditor> => {
-        const startTime = Date.now();
-        let bytesWritten = 0;
+                const initialProgress = Stream.succeed<SyncProgress>({
+                  currentFile: item.episode.title,
+                  currentIndex: i,
+                  totalFiles: plan.totalFiles,
+                  bytesTransferred: bytesWritten,
+                  totalBytes: plan.totalBytes,
+                  startTime,
+                  status: "syncing",
+                });
 
-        return Stream.fromIterable(plan.toCopy).pipe(
-          Stream.zipWithIndex,
-          Stream.flatMap(([item, i]) => {
-            const destDir = item.destPath.substring(0, item.destPath.lastIndexOf("/"));
-
-            const initialProgress = Stream.succeed<SyncProgress>({
-              currentFile: item.episode.title,
-              currentIndex: i,
-              totalFiles: plan.totalFiles,
-              bytesTransferred: bytesWritten,
-              totalBytes: plan.totalBytes,
-              startTime,
-              status: "syncing",
-            });
-
-            const copyFlow = Stream.fromEffect(
-              Effect.gen(function* () {
-                const fs = yield* FileSystem;
-                yield* fs.ensureDir(destDir);
-              }),
-            ).pipe(
-              Stream.flatMap(() =>
-                copyFileStream(item.sourcePath, item.destPath).pipe(
-                  Stream.map((bytes) => {
-                    bytesWritten += bytes;
-                    return {
-                      currentFile: item.episode.title,
-                      currentIndex: i,
-                      totalFiles: plan.totalFiles,
-                      bytesTransferred: bytesWritten,
-                      totalBytes: plan.totalBytes,
-                      startTime,
-                      status: "syncing",
-                    } as SyncProgress;
-                  }),
-                ),
-              ),
-              Stream.concat(
-                Stream.fromEffect(
-                  Effect.sync(() => {
-                    // Emit a progress update to show we are tagging
-                    return {
-                      currentFile: `Tagging: ${item.episode.title}`,
-                      currentIndex: i,
-                      totalFiles: plan.totalFiles,
-                      bytesTransferred: bytesWritten,
-                      totalBytes: plan.totalBytes,
-                      startTime,
-                      status: "syncing",
-                    } as SyncProgress;
-                  }),
-                ),
-              ),
-              Stream.concat(
-                Stream.fromEffect(
+                const copyFlow = Stream.fromEffect(
                   Effect.gen(function* () {
-                    const metadataEditor = yield* MetadataEditor;
-                    yield* metadataEditor
-                      .write(item.destPath, {
-                        title: item.episode.title,
-                        artist: item.podcast.author,
-                        album: item.podcast.title,
-                        genre: "Podcast",
-                        year: item.episode.publishedAt.getFullYear().toString(),
-                        comment: `Published: ${item.episode.publishedAt.toISOString().split("T")[0]}`,
-                      })
-                      .pipe(Effect.catchAll(() => Effect.void));
+                    yield* logger.debug(
+                      `Starting copy of [${i + 1}/${plan.totalFiles}]: ${item.episode.title}`,
+                    );
+                    const fs = yield* FileSystem;
+                    yield* fs.ensureDir(destDir);
                   }),
-                ).pipe(Stream.filterMap(() => Option.none<SyncProgress>())),
+                ).pipe(
+                  Stream.flatMap(() =>
+                    copyFileStream(item.sourcePath, item.destPath).pipe(
+                      Stream.map((bytes) => {
+                        bytesWritten += bytes;
+                        return {
+                          currentFile: item.episode.title,
+                          currentIndex: i,
+                          totalFiles: plan.totalFiles,
+                          bytesTransferred: bytesWritten,
+                          totalBytes: plan.totalBytes,
+                          startTime,
+                          status: "syncing",
+                        } as SyncProgress;
+                      }),
+                    ),
+                  ),
+                  Stream.concat(
+                    Stream.fromEffect(
+                      Effect.sync(() => {
+                        // Emit a progress update to show we are tagging
+                        return {
+                          currentFile: `Tagging: ${item.episode.title}`,
+                          currentIndex: i,
+                          totalFiles: plan.totalFiles,
+                          bytesTransferred: bytesWritten,
+                          totalBytes: plan.totalBytes,
+                          startTime,
+                          status: "syncing",
+                        } as SyncProgress;
+                      }),
+                    ),
+                  ),
+                  Stream.concat(
+                    Stream.fromEffect(
+                      Effect.gen(function* () {
+                        const metadataEditor = yield* MetadataEditor;
+                        yield* logger.debug(`Tagging episode: ${item.episode.title}`);
+                        yield* metadataEditor
+                          .write(item.destPath, {
+                            title: item.episode.title,
+                            artist: item.podcast.author,
+                            album: item.podcast.title,
+                            genre: "Podcast",
+                            year: item.episode.publishedAt.getFullYear().toString(),
+                            comment: `Published: ${item.episode.publishedAt.toISOString().split("T")[0]}`,
+                          })
+                          .pipe(
+                            Effect.tap(() =>
+                              logger.debug(`Successfully tagged: ${item.episode.title}`),
+                            ),
+                            Effect.tapError((err) =>
+                              logger.error(`Failed to tag: ${item.episode.title}`, err),
+                            ),
+                            Effect.catchAll(() => Effect.void),
+                          );
+                      }),
+                    ).pipe(Stream.filterMap(() => Option.none<SyncProgress>())),
+                  ),
+                );
+
+                return Stream.concat(initialProgress, copyFlow);
+              }),
+              Stream.concat(
+                Stream.succeed<SyncProgress>({
+                  currentFile: "",
+                  currentIndex: plan.totalFiles,
+                  totalFiles: plan.totalFiles,
+                  bytesTransferred: plan.totalBytes,
+                  totalBytes: plan.totalBytes,
+                  startTime,
+                  status: "complete",
+                }),
               ),
+              Stream.tap(() => logger.info("Sync plan execution complete")),
             );
-
-            return Stream.concat(initialProgress, copyFlow);
-          }),
-          Stream.concat(
-            Stream.succeed<SyncProgress>({
-              currentFile: "",
-              currentIndex: plan.totalFiles,
-              totalFiles: plan.totalFiles,
-              bytesTransferred: plan.totalBytes,
-              totalBytes: plan.totalBytes,
-              startTime,
-              status: "complete",
-            }),
-          ),
-        );
-      },
-    ),
-
-  copyFileWithProgress: (src, dest, onProgress) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem;
-      const size = yield* fs.getFileSize(src);
-      let written = 0;
-      yield* copyFileStream(src, dest).pipe(
-        Stream.tap((bytes) =>
-          Effect.sync(() => {
-            written += bytes;
-            onProgress(written, size);
           }),
         ),
-        Stream.runDrain,
-      );
-    }),
 
-  cleanup: (drivePath) =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem;
-      const podcastsPath = `${drivePath}/Podcasts`;
-      const showDirs = yield* fs.readDir(podcastsPath).pipe(
-        Effect.mapError((cause) => new CleanupError({ path: podcastsPath, cause })),
-        Effect.catchAll(() => Effect.succeed([] as string[])),
-      );
-      for (const showDir of showDirs) {
-        if (fs.isSystemHiddenFile(showDir)) continue;
-        const showPath = `${podcastsPath}/${showDir}`;
-        const isDir = yield* fs.isDirectory(showPath);
-        if (isDir) {
-          yield* fs.cleanupSystemHiddenFiles(showPath).pipe(Effect.catchAll(() => Effect.void));
-          const empty = yield* fs.isDirEmpty(showPath);
-          if (empty) {
-            yield* fs.remove(showPath).pipe(
-              Effect.mapError((cause) => new CleanupError({ path: showPath, cause })),
-              Effect.catchAll(() => Effect.void),
-            );
+      copyFileWithProgress: (src, dest, onProgress) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem;
+          const size = yield* fs.getFileSize(src);
+          let written = 0;
+          yield* copyFileStream(src, dest).pipe(
+            Stream.tap((bytes) =>
+              Effect.sync(() => {
+                written += bytes;
+                onProgress(written, size);
+              }),
+            ),
+            Stream.runDrain,
+          );
+        }),
+
+      cleanup: (drivePath) =>
+        Effect.gen(function* () {
+          yield* logger.info(`Starting cleanup of drive: ${drivePath}`);
+          const fs = yield* FileSystem;
+          const podcastsPath = `${drivePath}/Podcasts`;
+          const showDirs = yield* fs.readDir(podcastsPath).pipe(
+            Effect.mapError((cause) => new CleanupError({ path: podcastsPath, cause })),
+            Effect.catchAll(() => Effect.succeed([] as string[])),
+          );
+          for (const showDir of showDirs) {
+            if (fs.isSystemHiddenFile(showDir)) continue;
+            const showPath = `${podcastsPath}/${showDir}`;
+            const isDir = yield* fs.isDirectory(showPath);
+            if (isDir) {
+              yield* logger.debug(`Cleaning show directory: ${showDir}`);
+              yield* fs.cleanupSystemHiddenFiles(showPath).pipe(Effect.catchAll(() => Effect.void));
+              const empty = yield* fs.isDirEmpty(showPath);
+              if (empty) {
+                yield* logger.info(`Removing empty show directory: ${showDir}`);
+                yield* fs.remove(showPath).pipe(
+                  Effect.mapError((cause) => new CleanupError({ path: showPath, cause })),
+                  Effect.catchAll(() => Effect.void),
+                );
+              }
+            }
           }
-        }
-      }
-    }),
-});
+          yield* logger.info("Cleanup complete");
+        }),
+    };
+  }),
+);
 
 /**
  * Creates a test implementation of SyncEngine.

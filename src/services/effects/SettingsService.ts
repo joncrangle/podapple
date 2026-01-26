@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer } from "effect";
 import { FileSystem } from "@/services/effects/FileSystem";
+import { Logger } from "@/services/effects/Logger";
 
 export interface Settings {
   theme: string;
@@ -33,26 +34,40 @@ export const SettingsServiceLive = Layer.effect(
   SettingsService,
   Effect.gen(function* () {
     const fs = yield* FileSystem;
+    const logger = yield* Logger;
 
-    const loadSettings = fs.readFile(SETTINGS_FILE).pipe(
-      Effect.map((data) => {
-        try {
-          const text = new TextDecoder().decode(data);
-          return JSON.parse(text) as Settings;
-        } catch (_e) {
-          return { theme: "Catppuccin", favoriteDrives: [] };
-        }
-      }),
-      Effect.catchAll(() => Effect.succeed({ theme: "Catppuccin", favoriteDrives: [] })),
-    );
+    const loadSettings = Effect.gen(function* () {
+      yield* logger.debug(`Loading settings from: ${SETTINGS_FILE}`);
+      const result = yield* fs.readFile(SETTINGS_FILE).pipe(
+        Effect.map((data) => {
+          try {
+            const text = new TextDecoder().decode(data);
+            return JSON.parse(text) as Settings;
+          } catch (_e) {
+            return null;
+          }
+        }),
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+
+      if (result) {
+        yield* logger.info("Settings loaded successfully");
+        return result;
+      }
+
+      yield* logger.info("Using default settings (could not load or parse settings file)");
+      return { theme: "Catppuccin", favoriteDrives: [] } as Settings;
+    });
 
     const saveSettings = (newSettings: Partial<Settings>) =>
       Effect.gen(function* () {
+        yield* logger.debug(`Saving settings to: ${SETTINGS_FILE}`);
         const currentSettings = yield* loadSettings;
         const mergedSettings = { ...currentSettings, ...newSettings };
 
         const dirExists = yield* fs.exists(SETTINGS_DIR);
         if (!dirExists) {
+          yield* logger.debug(`Creating settings directory: ${SETTINGS_DIR}`);
           yield* fs.mkdir(SETTINGS_DIR);
         }
         const settingsWithSchema = {
@@ -61,7 +76,11 @@ export const SettingsServiceLive = Layer.effect(
         };
         const data = new TextEncoder().encode(JSON.stringify(settingsWithSchema, null, 2));
         yield* fs.writeFile(SETTINGS_FILE, data);
-      }).pipe(Effect.catchAll(() => Effect.void));
+        yield* logger.info("Settings saved successfully");
+      }).pipe(
+        Effect.tapError((err) => logger.error("Failed to save settings", err)),
+        Effect.catchAll(() => Effect.void),
+      );
 
     return SettingsService.of({
       loadSettings,

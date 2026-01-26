@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { FileSystemLive } from "@/services/effects/FileSystem";
+import { LoggerLive } from "@/services/effects/Logger";
 import { PodcastService, PodcastServiceLive } from "@/services/effects/PodcastService";
 
 describe("PodcastService", () => {
@@ -14,7 +15,10 @@ describe("PodcastService", () => {
       });
 
       await Effect.runPromise(
-        Effect.provide(program, PodcastServiceLive.pipe(Layer.provide(FileSystemLive))),
+        Effect.provide(
+          program,
+          PodcastServiceLive.pipe(Layer.provide(FileSystemLive), Layer.provide(LoggerLive)),
+        ),
       );
     });
   });

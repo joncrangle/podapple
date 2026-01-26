@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Context, Data, Effect, Layer } from "effect";
 import { FileSystem } from "@/services/effects/FileSystem";
+import { Logger } from "@/services/effects/Logger";
 import type { PodcastEpisode } from "@/types/podcast";
 
 // Apple Podcasts database paths
@@ -40,6 +41,7 @@ export const PodcastServiceLive = Layer.effect(
   PodcastService,
   Effect.gen(function* () {
     const fs = yield* FileSystem;
+    const logger = yield* Logger;
 
     const getDatabasePath = () => join(homedir(), PODCASTS_GROUP_CONTAINER, DB_FILE);
 
@@ -50,45 +52,65 @@ export const PodcastServiceLive = Layer.effect(
 
       loadMacPodcasts: Effect.gen(function* () {
         const dbPath = getDatabasePath();
+        yield* logger.debug(`Attempting to access Podcasts database: ${dbPath}`);
         const exists = yield* fs.exists(dbPath);
 
         if (!exists) {
+          yield* logger.error(`Podcasts database not found at: ${dbPath}`);
           return yield* new DatabaseNotFoundError({ path: dbPath });
         }
 
         return yield* Effect.acquireUseRelease(
-          Effect.try({
-            try: () => {
-              // Determine worker URL based on environment (bundled vs dev)
-              const isBundled = import.meta.url.startsWith("file:///$bunfs");
-              const workerPath = isBundled
-                ? "./services/workers/db.worker.js" // Bundled: $bunfs/root/services/workers/db.worker.js
-                : "../workers/db.worker.ts"; // Dev: relative to src/services/effects/PodcastService.ts
+          Effect.gen(function* () {
+            // Determine worker URL based on environment (bundled vs dev)
+            const isBundled = import.meta.url.startsWith("file:///$bunfs");
+            const workerPath = isBundled
+              ? "./services/workers/db.worker.js" // Bundled: $bunfs/root/services/workers/db.worker.js
+              : "../workers/db.worker.ts"; // Dev: relative to src/services/effects/PodcastService.ts
 
-              const workerUrl = new URL(workerPath, import.meta.url);
-              return new Worker(workerUrl);
-            },
-            catch: (err) => new PodcastError({ cause: err }),
-          }),
+            const workerUrl = new URL(workerPath, import.meta.url);
+            yield* logger.debug(`Spawning worker for database access: ${workerUrl}`);
+            return new Worker(workerUrl);
+          }).pipe(Effect.catchAll((err) => new PodcastError({ cause: err }))),
           // Use: Perform the async work
           (worker) =>
             Effect.async<PodcastEpisode[], PodcastError>((resume) => {
               worker.onmessage = (e) => {
                 if (e.data.type === "SUCCESS") {
-                  resume(Effect.succeed(e.data.data));
+                  const episodes = e.data.data as PodcastEpisode[];
+                  resume(
+                    Effect.gen(function* () {
+                      yield* logger.info(`Successfully loaded ${episodes.length} podcast episodes`);
+                      return episodes;
+                    }),
+                  );
                 } else {
-                  resume(Effect.fail(new PodcastError({ cause: e.data.error })));
+                  resume(
+                    Effect.gen(function* () {
+                      yield* logger.error(`Worker failed to load podcasts: ${e.data.error}`);
+                      return yield* Effect.fail(new PodcastError({ cause: e.data.error }));
+                    }),
+                  );
                 }
               };
 
               worker.onerror = (err) => {
-                resume(Effect.fail(new PodcastError({ cause: err })));
+                resume(
+                  Effect.gen(function* () {
+                    yield* logger.error(`Worker error: ${err.message}`);
+                    return yield* Effect.fail(new PodcastError({ cause: err }));
+                  }),
+                );
               };
 
               worker.postMessage({ type: "LOAD", dbPath });
             }),
           // Release: Always terminate the worker
-          (worker) => Effect.sync(() => worker.terminate()),
+          (worker) =>
+            Effect.gen(function* () {
+              yield* logger.debug("Terminating database worker");
+              worker.terminate();
+            }),
         );
       }),
     });

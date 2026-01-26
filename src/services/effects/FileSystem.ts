@@ -5,6 +5,7 @@
  */
 
 import { Context, Data, Effect, Layer } from "effect";
+import { Logger } from "./Logger";
 
 export const SYSTEM_HIDDEN_FILES = [
   ".DS_Store",
@@ -105,176 +106,218 @@ const isSystemHiddenFileImpl = (name: string): boolean => {
   return name.startsWith("._");
 };
 
-export const FileSystemLive = Layer.succeed(FileSystem, {
-  exists: (path) =>
-    Effect.promise(async () => {
-      const { stat } = await import("node:fs/promises");
-      try {
-        await stat(path);
-        return true;
-      } catch {
-        return false;
-      }
-    }),
+export const FileSystemLive = Layer.effect(
+  FileSystem,
+  Effect.gen(function* () {
+    const logger = yield* Logger;
 
-  readFile: (path) =>
-    Effect.tryPromise({
-      try: () => Bun.file(path).bytes(),
-      catch: () => new FileNotFoundError({ path }),
-    }),
+    return {
+      exists: (path) =>
+        Effect.promise(async () => {
+          const { stat } = await import("node:fs/promises");
+          try {
+            await stat(path);
+            return true;
+          } catch {
+            return false;
+          }
+        }),
 
-  writeFile: (path, data) =>
-    Effect.tryPromise({
-      try: () => Bun.write(path, data),
-      catch: (cause) => new WriteError({ path, cause }),
-    }).pipe(Effect.asVoid),
+      readFile: (path) =>
+        Effect.tryPromise({
+          try: () => Bun.file(path).bytes(),
+          catch: () => new FileNotFoundError({ path }),
+        }),
 
-  copyFile: (src, dest) =>
-    Effect.gen(function* () {
-      const data = yield* Effect.tryPromise({
-        try: () => Bun.file(src).bytes(),
-        catch: () => new CopyError({ src, dest, cause: "Source not found" }),
-      });
-      yield* Effect.tryPromise({
-        try: () => Bun.write(dest, data),
-        catch: (cause) => new CopyError({ src, dest, cause }),
-      });
-    }),
-
-  mkdir: (path) =>
-    Effect.tryPromise({
-      try: async () => {
-        const fs = await import("node:fs/promises");
-        await fs.mkdir(path, { recursive: true });
-      },
-      catch: (cause) => new WriteError({ path, cause }),
-    }),
-
-  remove: (path) =>
-    Effect.tryPromise({
-      try: async () => {
-        const fs = await import("node:fs/promises");
-        await fs.rm(path, { recursive: true, force: true });
-      },
-      catch: (cause) => new RemoveError({ path, cause }),
-    }),
-
-  readDir: (path) =>
-    Effect.tryPromise({
-      try: async () => {
-        const glob = new Bun.Glob("*");
-        const files: string[] = [];
-        for await (const file of glob.scan({ cwd: path })) {
-          files.push(file);
-        }
-        return files;
-      },
-      catch: (cause) => new ReadDirError({ path, cause }),
-    }),
-
-  list: (path) =>
-    Effect.tryPromise({
-      try: async () => {
-        const { readdir } = await import("node:fs/promises");
-        return await readdir(path);
-      },
-      catch: (cause) => new ReadDirError({ path, cause }),
-    }),
-
-  isDirectory: (path) =>
-    Effect.promise(async () => {
-      const { stat } = await import("node:fs/promises");
-      try {
-        const s = await stat(path);
-        return s.isDirectory();
-      } catch {
-        return false;
-      }
-    }),
-
-  glob: (pattern, cwd) =>
-    Effect.tryPromise({
-      try: async () => {
-        const glob = new Bun.Glob(pattern);
-        const files: string[] = [];
-        for await (const file of glob.scan({ cwd, onlyFiles: true })) {
-          files.push(file);
-        }
-        return files;
-      },
-      catch: (cause) => new GlobError({ pattern, cwd, cause }),
-    }),
-
-  stat: (path) =>
-    Effect.tryPromise({
-      try: async () => {
-        const { stat } = await import("node:fs/promises");
-        const s = await stat(path);
-        return { size: s.size, mtime: s.mtime, atime: s.atime };
-      },
-      catch: () => new FileNotFoundError({ path }),
-    }),
-
-  getFileSize: (path) =>
-    Effect.promise(async () => {
-      const { stat } = await import("node:fs/promises");
-      try {
-        const s = await stat(path);
-        return s.size;
-      } catch {
-        return 0;
-      }
-    }),
-
-  ensureDir: (dirPath) =>
-    Effect.tryPromise({
-      try: async () => {
-        const { mkdir } = await import("node:fs/promises");
-        await mkdir(dirPath, { recursive: true });
-      },
-      catch: (cause) => new WriteError({ path: dirPath, cause }),
-    }),
-
-  isSystemHiddenFile: isSystemHiddenFileImpl,
-
-  isAudioFile: (path) => {
-    const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
-    return AUDIO_EXTENSIONS.has(ext);
-  },
-
-  getExtension: (path) => {
-    const lastDot = path.lastIndexOf(".");
-    return lastDot >= 0 ? path.slice(lastDot) : ".mp3";
-  },
-
-  cleanupSystemHiddenFiles: (dirPath) =>
-    Effect.gen(function* () {
-      const { readdir, unlink } = yield* Effect.promise(() => import("node:fs/promises"));
-      const entries = yield* Effect.tryPromise({
-        try: () => readdir(dirPath),
-        catch: (cause) => new RemoveError({ path: dirPath, cause }),
-      });
-      for (const entry of entries) {
-        if (isSystemHiddenFileImpl(entry)) {
+      writeFile: (path, data) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Writing file: ${path} (${data.length} bytes)`);
           yield* Effect.tryPromise({
-            try: () => unlink(`${dirPath}/${entry}`),
-            catch: (cause) => new RemoveError({ path: `${dirPath}/${entry}`, cause }),
-          }).pipe(Effect.catchAll(() => Effect.void));
-        }
-      }
-    }),
+            try: () => Bun.write(path, data),
+            catch: (cause) => new WriteError({ path, cause }),
+          }).pipe(
+            Effect.tapError((err) => logger.error(`Failed to write file: ${path}`, err.cause)),
+            Effect.asVoid,
+          );
+        }),
 
-  isDirEmpty: (path) =>
-    Effect.gen(function* () {
-      const { readdir } = yield* Effect.promise(() => import("node:fs/promises"));
-      const entries = yield* Effect.tryPromise({
-        try: () => readdir(path),
-        catch: () => [] as string[],
-      }).pipe(Effect.orDie);
-      const visibleFiles = entries.filter((e) => !isSystemHiddenFileImpl(e));
-      return visibleFiles.length === 0;
-    }),
-});
+      copyFile: (src, dest) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Copying file: ${src} -> ${dest}`);
+          const data = yield* Effect.tryPromise({
+            try: () => Bun.file(src).bytes(),
+            catch: () => new CopyError({ src, dest, cause: "Source not found" }),
+          }).pipe(
+            Effect.tapError((err) =>
+              logger.error(`Failed to read source for copy: ${src}`, err.cause),
+            ),
+          );
+          yield* Effect.tryPromise({
+            try: () => Bun.write(dest, data),
+            catch: (cause) => new CopyError({ src, dest, cause }),
+          }).pipe(
+            Effect.tapError((err) =>
+              logger.error(`Failed to write destination for copy: ${dest}`, err.cause),
+            ),
+          );
+        }),
+
+      mkdir: (path) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Creating directory: ${path}`);
+          yield* Effect.tryPromise({
+            try: async () => {
+              const fs = await import("node:fs/promises");
+              await fs.mkdir(path, { recursive: true });
+            },
+            catch: (cause) => new WriteError({ path, cause }),
+          }).pipe(
+            Effect.tapError((err) => logger.error(`Failed to create directory: ${path}`, err)),
+          );
+        }),
+
+      remove: (path) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Removing path: ${path}`);
+          yield* Effect.tryPromise({
+            try: async () => {
+              const fs = await import("node:fs/promises");
+              await fs.rm(path, { recursive: true, force: true });
+            },
+            catch: (cause) => new RemoveError({ path, cause }),
+          }).pipe(Effect.tapError((err) => logger.error(`Failed to remove path: ${path}`, err)));
+        }),
+
+      readDir: (path) =>
+        Effect.tryPromise({
+          try: async () => {
+            const glob = new Bun.Glob("*");
+            const files: string[] = [];
+            for await (const file of glob.scan({ cwd: path })) {
+              files.push(file);
+            }
+            return files;
+          },
+          catch: (cause) => new ReadDirError({ path, cause }),
+        }),
+
+      list: (path) =>
+        Effect.tryPromise({
+          try: async () => {
+            const { readdir } = await import("node:fs/promises");
+            return await readdir(path);
+          },
+          catch: (cause) => new ReadDirError({ path, cause }),
+        }),
+
+      isDirectory: (path) =>
+        Effect.promise(async () => {
+          const { stat } = await import("node:fs/promises");
+          try {
+            const s = await stat(path);
+            return s.isDirectory();
+          } catch {
+            return false;
+          }
+        }),
+
+      glob: (pattern, cwd) =>
+        Effect.tryPromise({
+          try: async () => {
+            const glob = new Bun.Glob(pattern);
+            const files: string[] = [];
+            for await (const file of glob.scan({ cwd, onlyFiles: true })) {
+              files.push(file);
+            }
+            return files;
+          },
+          catch: (cause) => new GlobError({ pattern, cwd, cause }),
+        }),
+
+      stat: (path) =>
+        Effect.tryPromise({
+          try: async () => {
+            const { stat } = await import("node:fs/promises");
+            const s = await stat(path);
+            return { size: s.size, mtime: s.mtime, atime: s.atime };
+          },
+          catch: () => new FileNotFoundError({ path }),
+        }),
+
+      getFileSize: (path) =>
+        Effect.promise(async () => {
+          const { stat } = await import("node:fs/promises");
+          try {
+            const s = await stat(path);
+            return s.size;
+          } catch {
+            return 0;
+          }
+        }),
+
+      ensureDir: (dirPath) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Ensuring directory exists: ${dirPath}`);
+          yield* Effect.tryPromise({
+            try: async () => {
+              const { mkdir } = await import("node:fs/promises");
+              await mkdir(dirPath, { recursive: true });
+            },
+            catch: (cause) => new WriteError({ path: dirPath, cause }),
+          }).pipe(
+            Effect.tapError((err) => logger.error(`Failed to ensure directory: ${dirPath}`, err)),
+          );
+        }),
+
+      isSystemHiddenFile: isSystemHiddenFileImpl,
+
+      isAudioFile: (path) => {
+        const ext = path.slice(path.lastIndexOf(".")).toLowerCase();
+        return AUDIO_EXTENSIONS.has(ext);
+      },
+
+      getExtension: (path) => {
+        const lastDot = path.lastIndexOf(".");
+        return lastDot >= 0 ? path.slice(lastDot) : ".mp3";
+      },
+
+      cleanupSystemHiddenFiles: (dirPath) =>
+        Effect.gen(function* () {
+          yield* logger.debug(`Cleaning up system hidden files in: ${dirPath}`);
+          const { readdir, unlink } = yield* Effect.promise(() => import("node:fs/promises"));
+          const entries = yield* Effect.tryPromise({
+            try: () => readdir(dirPath),
+            catch: (cause) => new RemoveError({ path: dirPath, cause }),
+          });
+          for (const entry of entries) {
+            if (isSystemHiddenFileImpl(entry)) {
+              yield* logger.debug(`Removing hidden file: ${entry}`);
+              yield* Effect.tryPromise({
+                try: () => unlink(`${dirPath}/${entry}`),
+                catch: (cause) => new RemoveError({ path: `${dirPath}/${entry}`, cause }),
+              }).pipe(
+                Effect.tapError((err) =>
+                  logger.error(`Failed to remove hidden file: ${entry}`, err),
+                ),
+                Effect.catchAll(() => Effect.void),
+              );
+            }
+          }
+        }),
+
+      isDirEmpty: (path) =>
+        Effect.gen(function* () {
+          const { readdir } = yield* Effect.promise(() => import("node:fs/promises"));
+          const entries = yield* Effect.tryPromise({
+            try: () => readdir(path),
+            catch: () => [] as string[],
+          }).pipe(Effect.orDie);
+          const visibleFiles = entries.filter((e) => !isSystemHiddenFileImpl(e));
+          return visibleFiles.length === 0;
+        }),
+    };
+  }),
+);
 
 /**
  * Creates a test implementation of the FileSystem service using an in-memory Map.
