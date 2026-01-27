@@ -142,7 +142,6 @@ src/
    - Run `just check` to verify types.
 4. **Implementation**:
    - Write small, testable functions.
-   - Use `mockData` in `src/data/` for UI development if backend is not ready.
    - Follow the "No DOM" rule strictly.
 5. **Commits**: Write semantic commit messages (e.g., `feat: add drive selection`).
 

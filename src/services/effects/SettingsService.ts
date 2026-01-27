@@ -39,14 +39,15 @@ export const SettingsServiceLive = Layer.effect(
     const loadSettings = Effect.gen(function* () {
       yield* logger.debug(`Loading settings from: ${SETTINGS_FILE}`);
       const result = yield* fs.readFile(SETTINGS_FILE).pipe(
-        Effect.map((data) => {
-          try {
-            const text = new TextDecoder().decode(data);
-            return JSON.parse(text) as Settings;
-          } catch (_e) {
-            return null;
-          }
-        }),
+        Effect.flatMap((data) =>
+          Effect.try({
+            try: () => {
+              const text = new TextDecoder().decode(data);
+              return JSON.parse(text) as Settings;
+            },
+            catch: (cause) => new Error(`Failed to parse settings: ${cause}`),
+          }),
+        ),
         Effect.catchAll(() => Effect.succeed(null)),
       );
 

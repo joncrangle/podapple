@@ -234,9 +234,6 @@ interface MockDrivePodcast {
 }
 
 /**
- * Create a test layer for DriveScan with mock data
- */
-/**
  * Creates a test implementation of DriveScan with mock podcast data.
  */
 export const createDriveScanTest = (mockPodcasts: MockDrivePodcast[] = []) =>

@@ -113,15 +113,13 @@ export const FileSystemLive = Layer.effect(
 
     return {
       exists: (path) =>
-        Effect.promise(async () => {
+        Effect.tryPromise(async () => {
           const { stat } = await import("node:fs/promises");
-          try {
-            await stat(path);
-            return true;
-          } catch {
-            return false;
-          }
-        }),
+          await stat(path);
+        }).pipe(
+          Effect.as(true),
+          Effect.catchAll(() => Effect.succeed(false)),
+        ),
 
       readFile: (path) =>
         Effect.tryPromise({
@@ -211,15 +209,11 @@ export const FileSystemLive = Layer.effect(
         }),
 
       isDirectory: (path) =>
-        Effect.promise(async () => {
+        Effect.tryPromise(async () => {
           const { stat } = await import("node:fs/promises");
-          try {
-            const s = await stat(path);
-            return s.isDirectory();
-          } catch {
-            return false;
-          }
-        }),
+          const s = await stat(path);
+          return s.isDirectory();
+        }).pipe(Effect.catchAll(() => Effect.succeed(false))),
 
       glob: (pattern, cwd) =>
         Effect.tryPromise({
@@ -245,15 +239,11 @@ export const FileSystemLive = Layer.effect(
         }),
 
       getFileSize: (path) =>
-        Effect.promise(async () => {
+        Effect.tryPromise(async () => {
           const { stat } = await import("node:fs/promises");
-          try {
-            const s = await stat(path);
-            return s.size;
-          } catch {
-            return 0;
-          }
-        }),
+          const s = await stat(path);
+          return s.size;
+        }).pipe(Effect.catchAll(() => Effect.succeed(0))),
 
       ensureDir: (dirPath) =>
         Effect.gen(function* () {

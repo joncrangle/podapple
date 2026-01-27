@@ -55,11 +55,6 @@ full-check:
     just check && just test
 alias fc := full-check
 
-# Create a new release
-tag version:
-    git tag -a v{{version}} -m "Release v{{version}}"
-    git push origin v{{version}}
-
 # Create a demo with vhs
 vhs:
     HAS_NERDFONT=false vhs assets/demo.tape

@@ -1,5 +1,5 @@
 import { render, useTerminalDimensions } from "@opentui/solid";
-import { createMemo, Show } from "solid-js";
+import { createMemo, ErrorBoundary, Show } from "solid-js";
 import { ConfirmPopup } from "@/components/ConfirmPopup";
 import { DebugPopup } from "@/components/DebugPopup";
 import { DriveSelector } from "@/components/DriveSelector";
@@ -174,7 +174,33 @@ const App = () => {
   );
 };
 
-render(App, {
+const Root = () => {
+  const terminalDimensions = useTerminalDimensions();
+  return (
+    <ErrorBoundary
+      fallback={(err: Error) => (
+        <box
+          flexDirection="column"
+          padding={1}
+          height={terminalDimensions().height}
+          backgroundColor={Colors.background}
+        >
+          <text style={{ fg: Colors.text.error }}>Fatal Error Occurred:</text>
+          <box marginTop={1}>
+            <text>{err.message}</text>
+          </box>
+          <box marginTop={1}>
+            <text>Press Ctrl+C to exit.</text>
+          </box>
+        </box>
+      )}
+    >
+      <App />
+    </ErrorBoundary>
+  );
+};
+
+render(Root, {
   targetFps: 30,
   exitOnCtrlC: false, // We handle Ctrl+C ourselves for proper cleanup
   useMouse: true,

@@ -32,7 +32,7 @@ export class MetadataEditor extends Context.Tag("MetadataEditor")<
 export const MetadataEditorLive = Layer.succeed(MetadataEditor, {
   write: (path, metadata) =>
     Effect.tryPromise({
-      try: async () => {
+      try: () => {
         const tags: nodeID3.Tags = {
           title: metadata.title,
           artist: metadata.artist,
@@ -45,7 +45,7 @@ export const MetadataEditorLive = Layer.succeed(MetadataEditor, {
           year: metadata.year,
         };
         // Use the Promise API to avoid blocking the main thread (and the TUI)
-        await nodeID3.Promise.write(tags, path);
+        return nodeID3.Promise.write(tags, path);
       },
       catch: (cause) => new MetadataError({ path, cause }),
     }),
