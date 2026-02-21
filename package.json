@@ -19,7 +19,7 @@
     "build": "bun scripts/build.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.13",
+    "@biomejs/biome": "^2.4.4",
     "@types/bun": "latest"
   },
   "peerDependencies": {
@@ -27,14 +27,14 @@
   },
   "dependencies": {
     "@effect/schema": "^0.75.5",
-    "@opentui/core": "^0.1.75",
-    "@opentui/solid": "^0.1.75",
-    "effect": "^3.19.15",
+    "@opentui/core": "^0.1.81",
+    "@opentui/solid": "^0.1.81",
+    "effect": "^3.19.19",
     "node-id3": "^0.2.9",
     "solid-js": "^1.9.11"
   },
   "optionalDependencies": {
-    "@opentui/core-darwin-arm64": "^0.1.75",
-    "@opentui/core-darwin-x64": "^0.1.75"
+    "@opentui/core-darwin-arm64": "^0.1.81",
+    "@opentui/core-darwin-x64": "^0.1.81"
   }
 }
