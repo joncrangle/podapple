@@ -22,7 +22,13 @@
     "noPropertyAccessFromIndexSignature": false,
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "types": ["bun"],
+    "plugins": [
+      {
+        "name": "@effect/language-service"
+      }
+    ]
   },
   "include": ["./src/**/*"],
   "exclude": ["node_modules", "temp", "dist"]
