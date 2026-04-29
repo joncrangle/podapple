@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/joncrangle/podapple/compare/v0.2.0...v0.2.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* **lint:** bump deps and linting fix ([989b2e4](https://github.com/joncrangle/podapple/commit/989b2e471e3a967ef4845bbeb4dce76aa71f1118))
+
 ## [0.2.0](https://github.com/joncrangle/podapple/compare/v0.1.3...v0.2.0) (2026-01-26)
 
 
