@@ -177,7 +177,7 @@ export function parseActivityLine(
   const match = line.match(
     /^\s*\*\*\*(DiskAppeared|DiskDisappeared|VolumeMount|VolumeUnmount|DiskDescriptionChanged)\s+\('([^']+)',/,
   );
-  if (!match || !match[1] || !match[2]) return Option.none();
+  if (!match?.[1] || !match[2]) return Option.none();
 
   const action = match[1];
   const bsdName = match[2];
