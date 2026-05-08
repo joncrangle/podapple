@@ -9,13 +9,15 @@ This document serves as a comprehensive guide for AI coding assistants and auton
 The project is built on **Bun** and uses **TypeScript** with **SolidJS** for the TUI (`@opentui/solid`). We use **Just** as a command runner.
 
 ### Prerequisites
+
 - **Runtime**: Bun (latest stable)
 - **Language**: TypeScript 5+
 - **Framework**: SolidJS 1.9+
 - **UI Library**: `@opentui/solid`
-- **Tooling**: Biome (Linting & Formatting), Just (Command Runner)
+- **Tooling**: Oxlint/Oxfmt (Linting & Formatting), Just (Command Runner)
 
 ### Initialization
+
 ```bash
 bun install
 ```
@@ -27,14 +29,18 @@ bun install
 We use `just` for task automation. See `justfile` for all commands.
 
 ### Running the Application
+
 The app is a TUI requiring a specific preload script.
+
 - **Start (Dev)**: `just start` (or `just s`)
   - Runs: `bun run --watch src/index.tsx`
 - **Debug**: `just debug` (or `just d`)
   - Runs with `DEBUG=true`
 
 ### Testing
+
 Tests are in `src/__tests__/`. Use `just test` (or `just t`).
+
 - **Run All Tests**:
   ```bash
   just test
@@ -53,7 +59,7 @@ Tests are in `src/__tests__/`. Use `just test` (or `just t`).
   ```
 
 ### Linting & Formatting
-Enforced by **Biome**.
+
 - **Check**: `just check` (or `just c`) - Runs `tsc --noEmit`
 - **Lint**: `just lint` (or `just l`)
 - **Format**: `just fmt` (or `just f`)
@@ -63,31 +69,27 @@ Enforced by **Biome**.
 
 ## 3. Code Style Guidelines
 
-Enforced by `biome.json` and `tsconfig.json`.
-
-### Formatting (Biome)
-- **Indentation**: 2 spaces.
-- **Semicolons**: Always.
-- **Quotes**: Double quotes.
-- **Line Length**: 100 characters.
-- **Imports**: Organized automatically by Biome.
+Enforced by `.oxlintrc.json`, `.oxfmt.json`, and `tsconfig.json`.
 
 ### Naming Conventions
+
 - **Components**: `PascalCase` (e.g., `DriveItem.tsx`).
 - **Functions**: `camelCase` (e.g., `fetchPodcasts`).
 - **Variables**: `camelCase`; `UPPER_SNAKE_CASE` for constants.
 - **Types/Interfaces**: `PascalCase`. No `I` prefix.
 
 ### TypeScript
+
 - **Strict Mode**: Enabled.
 - **No Any**: Avoid `any`. Use explicit types.
 - **Return Types**: Explicitly annotate public function return types.
 - **Path Aliases**: Use `@/` for `src/` (e.g., `import { theme } from "@/theme"`).
 
 ### Import Order
+
 1. Built-in (fs, path)
-2. External (solid-js, @opentui/*)
-3. Internal Alias (@/components/*)
+2. External (solid-js, @opentui/\*)
+3. Internal Alias (@/components/\*)
 4. Relative (./utils)
 
 ---
@@ -95,11 +97,13 @@ Enforced by `biome.json` and `tsconfig.json`.
 ## 4. Component Design (SolidJS + TUI)
 
 ### Reactive State
+
 - **Signals**: `createSignal` for primitives.
 - **Stores**: `createStore` for objects/arrays (e.g., file lists).
 - **Effects**: `createEffect` for side effects (logging, file I/O).
 
 ### TUI Constraints
+
 - **Rendering**: Use `@opentui/solid` components (Box, Text).
 - **Layout**: Flexbox-like. Use `flexDirection="column"` for stacks.
 - **Input**: Handle `onKeyPress` events. Manage focus manually if needed.

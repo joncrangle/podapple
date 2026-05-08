@@ -6,5 +6,5 @@ import { formatBytes } from "@/utils/formatting";
  * e.g., "WALKMAN (15.2 GB free)"
  */
 export function formatDriveInfo(drive: Drive): string {
-  return `${drive.name} (${formatBytes(drive.freeSpace)} free)`;
+	return `${drive.name} (${formatBytes(drive.freeSpace)} free)`;
 }

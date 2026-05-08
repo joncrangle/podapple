@@ -1,36 +1,37 @@
 {
-  "name": "podapple",
-  "version": "0.2.1",
-  "description": "A modern, terminal-based Apple Podcasts synchronizer built for speed and simplicity.",
-  "bin": {
-    "podapple": "./src/index.tsx"
-  },
-  "type": "module",
-  "scripts": {
-    "dev": "bun run --watch src/index.tsx",
-    "test": "bun test src/__tests__",
-    "lint": "biome check .",
-    "format": "biome check --write .",
-    "build": "bun scripts/build.ts"
-  },
-  "dependencies": {
-    "@effect/schema": "^0.75.5",
-    "@opentui/core": "^0.2.2",
-    "@opentui/solid": "^0.2.2",
-    "effect": "^3.21.2",
-    "node-id3": "^0.2.9",
-    "solid-js": "^1.9.12"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.14",
-    "@effect/language-service": "^0.85.1",
-    "@types/bun": "^1.3.13"
-  },
-  "peerDependencies": {
-    "typescript": "^5.9.3"
-  },
-  "optionalDependencies": {
-    "@opentui/core-darwin-arm64": "^0.2.2",
-    "@opentui/core-darwin-x64": "^0.2.2"
-  }
+	"name": "podapple",
+	"version": "0.2.1",
+	"description": "A modern, terminal-based Apple Podcasts synchronizer built for speed and simplicity.",
+	"bin": {
+		"podapple": "./src/index.tsx"
+	},
+	"type": "module",
+	"scripts": {
+		"dev": "bun run --watch src/index.tsx",
+		"test": "bun test src/__tests__",
+		"lint": "oxlint .",
+		"format": "oxfmt .",
+		"build": "bun scripts/build.ts"
+	},
+	"dependencies": {
+		"@effect/schema": "^0.75.5",
+		"@opentui/core": "^0.2.2",
+		"@opentui/solid": "^0.2.2",
+		"effect": "^3.21.2",
+		"node-id3": "^0.2.9",
+		"solid-js": "^1.9.12"
+	},
+	"devDependencies": {
+		"@effect/language-service": "^0.85.1",
+		"@types/bun": "^1.3.13",
+		"oxfmt": "^0.48.0",
+		"oxlint": "^1.63.0"
+	},
+	"peerDependencies": {
+		"typescript": "^5.9.3"
+	},
+	"optionalDependencies": {
+		"@opentui/core-darwin-arm64": "^0.2.2",
+		"@opentui/core-darwin-x64": "^0.2.2"
+	}
 }

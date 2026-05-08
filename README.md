@@ -19,12 +19,12 @@ The core of `Podapple` is a sync engine optimized for external storage and digit
 
 **Technical Highlights**
 
-| Feature | Description |
-|---|---|
-| Auto-Detection | Instantly identifies compatible external volumes and mount points. |
-| Smart Metadata | Injects ID3 tags (Title, Artist, Album) so episodes look perfect on any device. |
-| Filesystem Safety | Automatically sanitizes filenames to prevent errors on FAT32/exFAT drives. |
-| Real-time Metrics | Monitors transfer speeds, byte counts, and queue progress with precision. |
+| Feature           | Description                                                                     |
+| ----------------- | ------------------------------------------------------------------------------- |
+| Auto-Detection    | Instantly identifies compatible external volumes and mount points.              |
+| Smart Metadata    | Injects ID3 tags (Title, Artist, Album) so episodes look perfect on any device. |
+| Filesystem Safety | Automatically sanitizes filenames to prevent errors on FAT32/exFAT drives.      |
+| Real-time Metrics | Monitors transfer speeds, byte counts, and queue progress with precision.       |
 
 ## Getting Started
 
@@ -41,7 +41,6 @@ The core of `Podapple` is a sync engine optimized for external storage and digit
 brew tap joncrangle/tap
 brew install podapple
 ```
-
 
 #### Binary
 
