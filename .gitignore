@@ -26,7 +26,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
-.opencode/state*
+.opencode
 
 # IntelliJ based IDEs
 .idea
