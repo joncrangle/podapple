@@ -29,7 +29,20 @@ export {
 	MetadataEditor,
 	MetadataEditorLive,
 	MetadataError,
+	type PodcastMetadata,
 } from "./MetadataEditor";
-export { PodcastService, PodcastServiceLive } from "./PodcastService";
-export { SettingsService, SettingsServiceLive } from "./SettingsService";
-export { CopyError, SyncEngine, SyncEngineLive } from "./SyncEngine";
+export {
+	PodcastService,
+	PodcastServiceLive,
+	PodcastError,
+	DatabaseNotFoundError,
+} from "./PodcastService";
+export { SettingsService, SettingsServiceLive, type Settings } from "./SettingsService";
+export {
+	SyncCopyError,
+	SyncEngine,
+	SyncEngineLive,
+	PlanError,
+	SyncError,
+	CleanupError,
+} from "./SyncEngine";

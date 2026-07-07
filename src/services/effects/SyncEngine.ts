@@ -26,7 +26,7 @@ export class PlanError extends Data.TaggedError("PlanError")<{
 	cause: unknown;
 }> {}
 
-export class CopyError extends Data.TaggedError("CopyError")<{
+export class SyncCopyError extends Data.TaggedError("SyncCopyError")<{
 	src: string;
 	dest: string;
 	cause: unknown;
@@ -53,13 +53,13 @@ export class SyncEngine extends Context.Tag("SyncEngine")<
 		readonly execute: (
 			plan: SyncPlan,
 			destPath: string,
-		) => Stream.Stream<SyncProgress, CopyError | WriteError, FileSystem | MetadataEditor>;
+		) => Stream.Stream<SyncProgress, SyncCopyError | WriteError, FileSystem | MetadataEditor>;
 		/** Copies a single file with progress callbacks */
 		readonly copyFileWithProgress: (
 			src: string,
 			dest: string,
 			onProgress: (written: number, total: number) => void,
-		) => Effect.Effect<void, CopyError | WriteError, FileSystem>;
+		) => Effect.Effect<void, SyncCopyError | WriteError, FileSystem>;
 		/** Cleans up empty show directories and system hidden files on the drive */
 		readonly cleanup: (drivePath: string) => Effect.Effect<void, CleanupError, FileSystem>;
 	}
@@ -73,12 +73,12 @@ export function formatDestPath(
 	drivePath: string,
 	showName: string,
 	episodeTitle: string,
-	publishedAt: Date,
+	published: Date,
 	extension: string,
 ): string {
 	const safePodcastName = sanitizeFilename(showName);
 	const safeEpisodeName = sanitizeFilename(episodeTitle);
-	const dateStr = formatDate(publishedAt);
+	const dateStr = formatDate(published);
 	return `${drivePath}/Podcasts/${safePodcastName}/${dateStr} - ${safeEpisodeName}${extension}`;
 }
 
@@ -86,13 +86,13 @@ export function formatDestPath(
  * Copies a file using node:fs handles and emits the number of bytes written in chunks.
  * Cleans up partial files on failure or interruption.
  */
-const copyFileStream = (src: string, dest: string): Stream.Stream<number, CopyError> =>
+const copyFileStream = (src: string, dest: string): Stream.Stream<number, SyncCopyError> =>
 	Stream.unwrapScoped(
 		Effect.gen(function* () {
 			const srcHandle = yield* Effect.acquireRelease(
 				Effect.tryPromise({
 					try: () => fs.open(src, "r"),
-					catch: (cause) => new CopyError({ src, dest, cause }),
+					catch: (cause) => new SyncCopyError({ src, dest, cause }),
 				}),
 				(handle) => Effect.promise(() => handle.close()),
 			);
@@ -100,25 +100,22 @@ const copyFileStream = (src: string, dest: string): Stream.Stream<number, CopyEr
 			const destHandle = yield* Effect.acquireRelease(
 				Effect.tryPromise({
 					try: () => fs.open(dest, "w"),
-					catch: (cause) => new CopyError({ src, dest, cause }),
+					catch: (cause) => new SyncCopyError({ src, dest, cause }),
 				}),
 				(handle) =>
 					Effect.gen(function* () {
 						yield* Effect.promise(() => handle.close());
 						// Check if we were interrupted or failed before finishing
-						const stat = yield* Effect.tryPromise({
-							try: () => fs.stat(dest),
-							catch: () => null,
-						}).pipe(Effect.orDie);
-						const srcStat = yield* Effect.tryPromise({
-							try: () => fs.stat(src),
-							catch: () => null,
-						}).pipe(Effect.orDie);
+						const stat = yield* Effect.tryPromise(() => fs.stat(dest)).pipe(
+							Effect.catchAll(() => Effect.succeed(null)),
+						);
+						const srcStat = yield* Effect.tryPromise(() => fs.stat(src)).pipe(
+							Effect.catchAll(() => Effect.succeed(null)),
+						);
 						if (stat && srcStat && stat.size < srcStat.size) {
-							yield* Effect.tryPromise({
-								try: () => fs.unlink(dest),
-								catch: () => null,
-							}).pipe(Effect.orDie);
+							yield* Effect.tryPromise(() => fs.unlink(dest)).pipe(
+								Effect.catchAll(() => Effect.void),
+							);
 						}
 					}),
 			);
@@ -128,18 +125,18 @@ const copyFileStream = (src: string, dest: string): Stream.Stream<number, CopyEr
 			return Stream.repeatEffectOption(
 				Effect.tryPromise({
 					try: () => srcHandle.read(buffer, 0, BUFFER_SIZE, null),
-					catch: (cause) => Option.some(new CopyError({ src, dest, cause })),
+					catch: (cause) => Option.some(new SyncCopyError({ src, dest, cause })),
 				}).pipe(
 					Effect.flatMap(({ bytesRead }) => {
 						if (bytesRead === 0) return Effect.fail(Option.none());
 						return Effect.tryPromise({
 							try: () => destHandle.write(buffer.subarray(0, bytesRead)),
-							catch: (cause) => Option.some(new CopyError({ src, dest, cause })),
+							catch: (cause) => Option.some(new SyncCopyError({ src, dest, cause })),
 						}).pipe(
 							Effect.flatMap(() =>
 								Effect.tryPromise({
 									try: () => destHandle.datasync(),
-									catch: (cause) => Option.some(new CopyError({ src, dest, cause })),
+									catch: (cause) => Option.some(new SyncCopyError({ src, dest, cause })),
 								}),
 							),
 							Effect.as(bytesRead),
@@ -167,32 +164,52 @@ export const SyncEngineLive = Layer.effect(
 					const toCopy: CopyItem[] = [];
 					let totalBytes = 0;
 
+					const candidates: Array<{
+						episode: (typeof mac)[number]["episodes"][number];
+						podcast: (typeof mac)[number];
+						fullDestPath: string;
+					}> = [];
+
 					for (const podcast of mac) {
 						for (const episode of podcast.episodes) {
-							if (episode.synced || !episode.assetUrl) continue;
+							if (episode.onDrive || !episode.filePath) continue;
 							if (matcher.matchEpisode(podcast.title, episode, driveIndex)) continue;
 
-							const ext = fs.getExtension(episode.assetUrl);
+							const ext = fs.getExtension(episode.filePath);
 							const fullDestPath = formatDestPath(
 								drivePath,
 								podcast.title,
 								episode.title,
-								episode.publishedAt,
+								episode.published,
 								ext,
 							);
+							candidates.push({ episode, podcast, fullDestPath });
+						}
+					}
 
-							const dSize = yield* fs.getFileSize(fullDestPath);
-							if (dSize > 0) continue;
+					const results = yield* Effect.forEach(
+						candidates,
+						({ episode, podcast, fullDestPath }) =>
+							Effect.gen(function* () {
+								const dSize = yield* fs.getFileSize(fullDestPath);
+								if (dSize > 0) return Option.none();
 
-							const sSize = yield* fs.getFileSize(episode.assetUrl);
-							toCopy.push({
-								episode,
-								podcast,
-								sourcePath: episode.assetUrl,
-								destPath: fullDestPath,
-								size: sSize,
-							});
-							totalBytes += sSize;
+								const sSize = yield* fs.getFileSize(episode.filePath);
+								return Option.some({
+									episode,
+									podcast,
+									sourcePath: episode.filePath,
+									destPath: fullDestPath,
+									size: sSize,
+								} as CopyItem);
+							}),
+						{ concurrency: 10 },
+					);
+
+					for (const opt of results) {
+						if (Option.isSome(opt)) {
+							toCopy.push(opt.value);
+							totalBytes += opt.value.size;
 						}
 					}
 					const plan: SyncPlan = { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes };
@@ -276,8 +293,8 @@ export const SyncEngineLive = Layer.effect(
 														artist: item.podcast.author,
 														album: item.podcast.title,
 														genre: "Podcast",
-														year: item.episode.publishedAt.getFullYear().toString(),
-														comment: `Published: ${item.episode.publishedAt.toISOString().split("T")[0]}`,
+														year: item.episode.published.getFullYear().toString(),
+														comment: `Published: ${item.episode.published.toISOString().split("T")[0]}`,
 													})
 													.pipe(
 														Effect.tap(() =>
@@ -372,22 +389,22 @@ export const createSyncEngineTest = (mockFiles: Map<string, Uint8Array> = new Ma
 
 				for (const podcast of mac) {
 					for (const episode of podcast.episodes) {
-						if (episode.synced || !episode.assetUrl) continue;
+						if (episode.onDrive || !episode.filePath) continue;
 						if (matcher.matchEpisode(podcast.title, episode, driveIndex)) continue;
 
 						const fullDestPath = formatDestPath(
 							drivePath,
 							podcast.title,
 							episode.title,
-							episode.publishedAt,
+							episode.published,
 							".mp3",
 						);
 
-						const sSize = mockFiles.get(episode.assetUrl)?.length || 1024 * 1024;
+						const sSize = mockFiles.get(episode.filePath)?.length || 1024 * 1024;
 						toCopy.push({
 							episode,
 							podcast,
-							sourcePath: episode.assetUrl,
+							sourcePath: episode.filePath,
 							destPath: fullDestPath,
 							size: sSize,
 						});
@@ -427,7 +444,7 @@ export const createSyncEngineTest = (mockFiles: Map<string, Uint8Array> = new Ma
 		copyFileWithProgress: (src, dest, onProgress) => {
 			const content = mockFiles.get(src);
 			if (!content) {
-				return Effect.fail(new CopyError({ src, dest, cause: new Error("File not found") }));
+				return Effect.fail(new SyncCopyError({ src, dest, cause: new Error("File not found") }));
 			}
 			mockFiles.set(dest, content);
 			onProgress(content.length, content.length);

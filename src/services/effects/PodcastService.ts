@@ -71,7 +71,7 @@ export const PodcastServiceLive = Layer.effect(
 						const workerUrl = new URL(workerPath, import.meta.url);
 						yield* logger.debug(`Spawning worker for database access: ${workerUrl}`);
 						return new Worker(workerUrl);
-					}).pipe(Effect.catchAll((err) => new PodcastError({ cause: err }))),
+					}).pipe(Effect.catchAll((err) => Effect.fail(new PodcastError({ cause: err })))),
 					// Use: Perform the async work
 					(worker) =>
 						Effect.async<PodcastEpisode[], PodcastError>((resume) => {

@@ -1,4 +1,3 @@
-import type { Fiber } from "effect";
 import { createStore } from "solid-js/store";
 import type { DebugMessage } from "@/components/DebugPopup";
 import type { Drive } from "@/types/drive";
@@ -28,7 +27,6 @@ export interface AppState {
 	loadingDrive: boolean;
 	isScanning: boolean;
 	transferProgress: TransferProgress;
-	syncFiber: Fiber.RuntimeFiber<unknown, unknown> | null;
 	errorMsg: string;
 	debugMessages: DebugMessage[];
 	lastKey: string | null;
@@ -61,7 +59,6 @@ const initialState: AppState = {
 		totalBytes: 0,
 		speed: 0,
 	},
-	syncFiber: null,
 	errorMsg: "",
 	debugMessages: [],
 	lastKey: null,
@@ -94,11 +91,12 @@ export const actions = {
 	setIsScanning: (scanning: boolean) => setState("isScanning", scanning),
 	updateTransferProgress: (progress: Partial<TransferProgress>) =>
 		setState("transferProgress", (prev) => ({ ...prev, ...progress })),
-	setSyncFiber: (fiber: Fiber.RuntimeFiber<unknown, unknown> | null) =>
-		setState("syncFiber", fiber),
 	setErrorMsg: (msg: string) => setState("errorMsg", msg),
 	addDebugMessage: (message: string, type: DebugMessage["type"] = "info") => {
-		setState("debugMessages", (prev) => [...prev, { timestamp: Date.now(), message, type }]);
+		setState("debugMessages", (prev) => {
+			const next = [...prev, { timestamp: Date.now(), message, type }];
+			return next.length > 500 ? next.slice(-500) : next;
+		});
 	},
 	clearDebugMessages: () => setState("debugMessages", []),
 	setLastKey: (key: string | null) => setState("lastKey", key),

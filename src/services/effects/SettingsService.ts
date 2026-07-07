@@ -23,7 +23,7 @@ export class SettingsService extends Context.Tag("SettingsService")<
 		/** Loads application settings from ~/.config/podapple/podapple.jsonc */
 		readonly loadSettings: Effect.Effect<Settings>;
 		/** Saves application settings to ~/.config/podapple/podapple.jsonc */
-		readonly saveSettings: (settings: Partial<Settings>) => Effect.Effect<void>;
+		readonly saveSettings: (settings: Partial<Settings>) => Effect.Effect<void, Error>;
 	}
 >() {}
 
@@ -43,7 +43,12 @@ export const SettingsServiceLive = Layer.effect(
 					Effect.try({
 						try: () => {
 							const text = new TextDecoder().decode(data);
-							return JSON.parse(text) as Settings;
+							// Strip single-line and multi-line comments from JSONC
+							const cleanJson = text.replace(
+								/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
+								(m, g) => (g ? "" : m),
+							);
+							return JSON.parse(cleanJson) as Settings;
 						},
 						catch: (cause) => new Error(`Failed to parse settings: ${cause}`),
 					}),
@@ -80,7 +85,7 @@ export const SettingsServiceLive = Layer.effect(
 				yield* logger.info("Settings saved successfully");
 			}).pipe(
 				Effect.tapError((err) => logger.error("Failed to save settings", err)),
-				Effect.catchAll(() => Effect.void),
+				Effect.mapError((err) => new Error(`Failed to save settings: ${err}`)),
 			);
 
 		return SettingsService.of({

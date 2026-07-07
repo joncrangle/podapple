@@ -1,5 +1,5 @@
 import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect";
-import { onMount } from "solid-js";
+import { onMount, onCleanup } from "solid-js";
 import {
 	DriveDetection,
 	DriveDetectionLive,
@@ -79,11 +79,19 @@ type AppRequirements =
  * Hook containing the core application logic, orchestrating various Effect services.
  */
 export const useAppLogic = () => {
+	let driveListenerFiber: Fiber.RuntimeFiber<any, any> | undefined;
+	let activeSyncFiber: Fiber.RuntimeFiber<any, any> | undefined;
+
 	/**
 	 * Runs an effect to completion using the AppLayer.
 	 */
 	const run = <A, E, R extends AppRequirements>(effect: Effect.Effect<A, E, R>) =>
-		Effect.runPromise(Effect.provide(effect, AppLayer as unknown as Layer.Layer<R>));
+		Effect.runPromise(Effect.provide(effect, AppLayer as unknown as Layer.Layer<R>)).catch(
+			(err) => {
+				console.error("Unhandled Effect Promise rejection:", err);
+				actions.addDebugMessage(`Unhandled error: ${String(err)}`, "error");
+			},
+		);
 
 	/**
 	 * Runs an effect as a fiber using the AppLayer.
@@ -138,9 +146,9 @@ export const useAppLogic = () => {
 	const loadDrivePodcasts = (drive: Drive) => run(loadDrivePodcastsEffect(drive));
 
 	/**
-	 * Scans for drives and handles auto-selection of favorites.
+	 * Scans for drives and handles auto-selection of favorites (Effect representation).
 	 */
-	const scanForDrives = () =>
+	const scanForDrivesEffect = () =>
 		Effect.gen(function* () {
 			const logger = yield* Logger;
 			actions.setIsScanning(true);
@@ -185,6 +193,11 @@ export const useAppLogic = () => {
 				}),
 			),
 		);
+
+	/**
+	 * Imperative wrapper for scanForDrivesEffect.
+	 */
+	const scanForDrives = () => run(scanForDrivesEffect());
 
 	/**
 	 * Listens for drive appearance/disappearance events in the background.
@@ -305,7 +318,7 @@ export const useAppLogic = () => {
 				yield* loadSettings();
 
 				// Start background drive listener
-				runFork(listenForDrives());
+				driveListenerFiber = runFork(listenForDrives());
 
 				const podcastService = yield* PodcastService;
 				const available = yield* podcastService.checkAvailability;
@@ -322,7 +335,7 @@ export const useAppLogic = () => {
 					return Effect.void;
 				}),
 				Effect.onExit(() => Effect.sync(() => actions.setLoadingMac(false))),
-				Effect.tap(() => scanForDrives()),
+				Effect.tap(() => scanForDrivesEffect()),
 			),
 		);
 
@@ -436,10 +449,10 @@ export const useAppLogic = () => {
 			Effect.gen(function* () {
 				const logger = yield* Logger;
 				const fiber = yield* Effect.fork(syncProgram);
-				actions.setSyncFiber(fiber);
+				activeSyncFiber = fiber;
 
 				const exit = yield* Fiber.await(fiber);
-				actions.setSyncFiber(null);
+				activeSyncFiber = undefined;
 
 				if (Exit.isSuccess(exit)) {
 					if (exit.value.success) {
@@ -490,19 +503,23 @@ export const useAppLogic = () => {
 	 * Cancels the current sync operation by interrupting the fiber.
 	 */
 	const cancelSync = () => {
-		if (state.syncFiber) {
+		if (activeSyncFiber) {
 			actions.addDebugMessage("Interrupting sync fiber...");
-			Fiber.interrupt(state.syncFiber).pipe(
-				Effect.zipLeft(Effect.sync(() => actions.setSyncFiber(null))),
-				Effect.zipLeft(Effect.sync(() => actions.setErrorMsg(""))),
-				Effect.zipLeft(Effect.sync(() => actions.setAppView("normal"))),
-				runFork,
-			);
+			runFork(Fiber.interrupt(activeSyncFiber));
 		}
 	};
 
 	onMount(() => {
 		initialize();
+	});
+
+	onCleanup(() => {
+		if (driveListenerFiber) {
+			Effect.runFork(Fiber.interrupt(driveListenerFiber));
+		}
+		if (activeSyncFiber) {
+			Effect.runFork(Fiber.interrupt(activeSyncFiber));
+		}
 	});
 
 	return {

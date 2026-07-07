@@ -4,6 +4,8 @@
  * Tests for FileSystem, DriveDetection, and SyncEngine Effect services.
  */
 
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import {
@@ -11,16 +13,27 @@ import {
 	DriveDetection,
 	type DriveEvent,
 } from "@/services/effects/DriveDetection";
-import { createDriveScanTest, DriveScan } from "@/services/effects/DriveScan";
-import { EpisodeMatcherLive } from "@/services/effects/EpisodeMatcher";
+import { createDriveScanTest, DriveScan, DriveScanLive } from "@/services/effects/DriveScan";
+import { EpisodeMatcher, EpisodeMatcherLive } from "@/services/effects/EpisodeMatcher";
+import { Logger, LoggerLive } from "@/services/effects/Logger";
 import {
 	createFileSystemTest,
 	FileNotFoundError,
 	FileSystem,
 	CopyError as FileSystemCopyError,
 } from "@/services/effects/FileSystem";
-import { createMetadataEditorTest } from "@/services/effects/MetadataEditor";
+import {
+	createMetadataEditorTest,
+	MetadataEditor,
+	MetadataEditorLive,
+} from "@/services/effects/MetadataEditor";
 import { createSyncEngineTest, SyncEngine } from "@/services/effects/SyncEngine";
+import { SettingsService, SettingsServiceLive } from "@/services/effects/SettingsService";
+import {
+	PodcastService,
+	PodcastServiceLive,
+	DatabaseNotFoundError,
+} from "@/services/effects/PodcastService";
 import type { Drive } from "@/types/drive";
 import type { Podcast } from "@/types/podcast";
 
@@ -307,17 +320,19 @@ describe("SyncEngine Service", () => {
 					id: "ep-1",
 					title: "Episode 1",
 					duration: 3600,
-					publishedAt: new Date("2024-01-01"),
-					synced: false,
-					assetUrl: "/path/to/ep1.mp3",
+					published: new Date("2024-01-01"),
+					onDrive: false,
+					filePath: "/path/to/ep1.mp3",
+					fileSize: 0,
 				},
 				{
 					id: "ep-2",
 					title: "Episode 2",
 					duration: 1800,
-					publishedAt: new Date("2024-01-08"),
-					synced: true,
-					assetUrl: "/path/to/ep2.mp3",
+					published: new Date("2024-01-08"),
+					onDrive: true,
+					filePath: "/path/to/ep2.mp3",
+					fileSize: 0,
 				},
 			],
 		},
@@ -441,6 +456,12 @@ describe("SyncEngine Service", () => {
 });
 
 describe("DriveScan Service", () => {
+	const testLogger = Layer.succeed(Logger, {
+		debug: () => Effect.void,
+		info: () => Effect.void,
+		error: () => Effect.void,
+	});
+
 	describe("scanDrive", () => {
 		it("returns empty array when no podcasts on drive", async () => {
 			const program = Effect.gen(function* () {
@@ -451,7 +472,12 @@ describe("DriveScan Service", () => {
 			const result = await Effect.runPromise(
 				Effect.provide(
 					program,
-					Layer.mergeAll(createDriveScanTest([]), createFileSystemTest(), EpisodeMatcherLive),
+					Layer.mergeAll(
+						createDriveScanTest([]),
+						createFileSystemTest(),
+						EpisodeMatcherLive,
+						testLogger,
+					),
 				),
 			);
 
@@ -486,6 +512,7 @@ describe("DriveScan Service", () => {
 						createDriveScanTest(mockDrivePodcasts),
 						createFileSystemTest(),
 						EpisodeMatcherLive,
+						testLogger,
 					),
 				),
 			);
@@ -525,6 +552,7 @@ describe("DriveScan Service", () => {
 						createDriveScanTest(mockDrivePodcasts),
 						createFileSystemTest(),
 						EpisodeMatcherLive,
+						testLogger,
 					),
 				),
 			);
@@ -557,6 +585,7 @@ describe("DriveScan Service", () => {
 						createDriveScanTest(mockDrivePodcasts),
 						createFileSystemTest(),
 						EpisodeMatcherLive,
+						testLogger,
 					),
 				),
 			);
@@ -573,11 +602,286 @@ describe("DriveScan Service", () => {
 			const result = await Effect.runPromise(
 				Effect.provide(
 					program,
-					Layer.mergeAll(createDriveScanTest([]), createFileSystemTest(), EpisodeMatcherLive),
+					Layer.mergeAll(
+						createDriveScanTest([]),
+						createFileSystemTest(),
+						EpisodeMatcherLive,
+						testLogger,
+					),
 				),
 			);
 
 			expect(result).toBe(false);
+		});
+	});
+
+	describe("DriveScanLive (Real Implementation)", () => {
+		const mockFiles = new Map<string, Uint8Array>([
+			["/Volumes/USB/Podcasts/Tech_Talk/2024-01-15 - Episode_1.mp3", new Uint8Array(100)],
+			["/Volumes/USB/Podcasts/Tech_Talk/2024-01-22 - Episode_2.mp3", new Uint8Array(200)],
+			["/Volumes/USB/Podcasts/Tech_Talk/.DS_Store", new Uint8Array(0)], // System hidden file
+			["/Volumes/USB/Podcasts/Tech_Talk/notes.txt", new Uint8Array(0)], // Non-audio file
+			["/Volumes/USB/Podcasts/Tech_Talk/InvalidDate - Episode_3.mp3", new Uint8Array(300)], // Invalid date format fallback
+		]);
+
+		const testLogger = Layer.succeed(Logger, {
+			debug: () => Effect.void,
+			info: () => Effect.void,
+			error: () => Effect.void,
+		});
+
+		it("scanDrive detects podcasts and correctly parses file dates and filters other files", async () => {
+			const program = Effect.gen(function* () {
+				const scanner = yield* DriveScan;
+				return yield* scanner.scanDrive("/Volumes/USB");
+			});
+
+			const result = await Effect.runPromise(
+				Effect.provide(
+					program,
+					Layer.mergeAll(
+						DriveScanLive,
+						createFileSystemTest(mockFiles),
+						EpisodeMatcherLive,
+						testLogger,
+					),
+				),
+			);
+
+			expect(result).toHaveLength(1);
+			const podcast = result[0]!;
+			expect(podcast.title).toBe("Tech Talk"); // underscores to spaces
+			expect(podcast.episodes).toHaveLength(3); // Episode 1, Episode 2, Episode 3
+
+			// Verify individual items
+			const ep1 = podcast.episodes.find((e) => e.title.includes("Episode 1"));
+			expect(ep1).toBeDefined();
+			expect(ep1?.published.toISOString().slice(0, 10)).toBe("2024-01-15");
+			expect(ep1?.fileSize).toBe(100);
+
+			const ep2 = podcast.episodes.find((e) => e.title.includes("Episode 2"));
+			expect(ep2).toBeDefined();
+			expect(ep2?.published.toISOString().slice(0, 10)).toBe("2024-01-22");
+			expect(ep2?.fileSize).toBe(200);
+
+			// Invalid date should fall back to now
+			const ep3 = podcast.episodes.find((e) => e.title.includes("InvalidDate - Episode 3"));
+			expect(ep3).toBeDefined();
+			expect(ep3?.published).toBeInstanceOf(Date);
+			expect(isNaN(ep3!.published.getTime())).toBe(false);
+		});
+
+		it("buildDriveIndex builds lookup table using expected drive keys", async () => {
+			const program = Effect.gen(function* () {
+				const scanner = yield* DriveScan;
+				return yield* scanner.buildDriveIndex("/Volumes/USB");
+			});
+
+			const result = await Effect.runPromise(
+				Effect.provide(
+					program,
+					Layer.mergeAll(
+						DriveScanLive,
+						createFileSystemTest(mockFiles),
+						EpisodeMatcherLive,
+						testLogger,
+					),
+				),
+			);
+
+			expect(result.size).toBe(3);
+			expect(result.has("Tech_Talk/Episode_1.mp3")).toBe(true);
+			expect(result.has("Tech_Talk/Episode_2.mp3")).toBe(true);
+			expect(result.has("Tech_Talk/InvalidDate_-_Episode_3.mp3")).toBe(true);
+		});
+
+		it("hasPodcastsFolder returns true if folder exists, false otherwise", async () => {
+			const program = Effect.gen(function* () {
+				const scanner = yield* DriveScan;
+				const has1 = yield* scanner.hasPodcastsFolder("/Volumes/USB");
+				const has2 = yield* scanner.hasPodcastsFolder("/Volumes/Empty");
+				return { has1, has2 };
+			});
+
+			const result = await Effect.runPromise(
+				Effect.provide(
+					program,
+					Layer.mergeAll(
+						DriveScanLive,
+						createFileSystemTest(mockFiles),
+						EpisodeMatcherLive,
+						testLogger,
+					),
+				),
+			);
+
+			expect(result.has1).toBe(true);
+			expect(result.has2).toBe(false);
+		});
+	});
+
+	describe("EpisodeMatcher Service", () => {
+		it("buildExpectedDrivePath formats destination path correctly", async () => {
+			const program = Effect.gen(function* () {
+				const matcher = yield* EpisodeMatcher;
+				return matcher.buildExpectedDrivePath("Tech Talk", "Episode 1: Intro");
+			});
+
+			const result = await Effect.runPromise(Effect.provide(program, EpisodeMatcherLive));
+			expect(result).toBe("Tech_Talk/Episode_1-_Intro.mp3");
+		});
+
+		it("matchEpisode matches by path, size, or duration tolerance within same show", async () => {
+			const program = Effect.gen(function* () {
+				const matcher = yield* EpisodeMatcher;
+				const driveIndex = new Map<string, { path: string; size?: number; duration?: number }>([
+					["Tech_Talk/Episode_1.mp3", { path: "/path/ep1.mp3", size: 1000, duration: 100 }],
+					["Tech_Talk/Episode_2_Renamed.mp3", { path: "/path/ep2.mp3", size: 2000, duration: 200 }],
+					["Tech_Talk/Episode_3_Renamed.mp3", { path: "/path/ep3.mp3", size: 3000, duration: 300 }],
+					["Other_Show/Episode_1.mp3", { path: "/path/other.mp3", size: 2000, duration: 200 }], // same size/duration but different show
+				]);
+
+				// 1. Path match
+				const match1 = matcher.matchEpisode("Tech Talk", { title: "Episode 1" }, driveIndex);
+
+				// 2. Size match (same show)
+				const match2 = matcher.matchEpisode(
+					"Tech Talk",
+					{ title: "Episode 2", fileSize: 2000 },
+					driveIndex,
+				);
+
+				// 3. Duration match (within 2% tolerance, same show)
+				const match3 = matcher.matchEpisode(
+					"Tech Talk",
+					{ title: "Episode 3", duration: 303 }, // 303 vs 300 is 1% diff
+					driveIndex,
+				);
+
+				// 4. Same size/duration but different show should NOT match
+				const match4 = matcher.matchEpisode(
+					"Other Show",
+					{ title: "Episode 4", fileSize: 1000, duration: 100 },
+					driveIndex,
+				);
+
+				// 5. Duration match outside tolerance (e.g. 310s for 300s) should NOT match
+				const match5 = matcher.matchEpisode(
+					"Tech Talk",
+					{ title: "Episode 5", duration: 310 }, // 310 vs 300 is > 3% diff
+					driveIndex,
+				);
+
+				return { match1, match2, match3, match4, match5 };
+			});
+
+			const result = await Effect.runPromise(Effect.provide(program, EpisodeMatcherLive));
+			expect(result.match1).toBe(true);
+			expect(result.match2).toBe(true);
+			expect(result.match3).toBe(true);
+			expect(result.match4).toBe(false);
+			expect(result.match5).toBe(false);
+		});
+	});
+
+	describe("SettingsServiceLive (Real Implementation)", () => {
+		it("loads, parses JSONC, and saves settings", async () => {
+			const mockFs = new Map<string, Uint8Array>();
+			// Write settings file with comments
+			const jsoncContent = `
+				// This is a test comment
+				{
+					"theme": "Nord", /* Another comment */
+					"favoriteDrives": ["/Volumes/USB"]
+				}
+			`;
+			const settingsDir = join(homedir(), ".config", "podapple");
+			const settingsFile = join(settingsDir, "podapple.jsonc");
+			mockFs.set(settingsFile, new TextEncoder().encode(jsoncContent));
+
+			const program = Effect.gen(function* () {
+				const settings = yield* SettingsService;
+				// Test loading
+				const loaded = yield* settings.loadSettings;
+				expect(loaded.theme).toBe("Nord");
+				expect(loaded.favoriteDrives).toEqual(["/Volumes/USB"]);
+
+				// Test saving
+				yield* settings.saveSettings({ theme: "Catppuccin" });
+				const savedBytes = mockFs.get(settingsFile);
+				expect(savedBytes).toBeDefined();
+				const savedText = new TextDecoder().decode(savedBytes!);
+				const savedObj = JSON.parse(savedText);
+				expect(savedObj.theme).toBe("Catppuccin");
+				expect(savedObj.favoriteDrives).toEqual(["/Volumes/USB"]);
+			});
+
+			const testFileSystem = createFileSystemTest(mockFs);
+			const layer = SettingsServiceLive.pipe(
+				Layer.provide(testFileSystem),
+				Layer.provide(LoggerLive),
+			);
+			await Effect.runPromise(Effect.provide(program, layer));
+		});
+	});
+
+	describe("PodcastServiceLive (Real Implementation)", () => {
+		it("handles availability checks and DatabaseNotFoundError when db is missing", async () => {
+			const mockFs = new Map<string, Uint8Array>();
+			const testFileSystem = createFileSystemTest(mockFs);
+
+			const program = Effect.gen(function* () {
+				const podcastService = yield* PodcastService;
+
+				// 1. Not available initially
+				const available = yield* podcastService.checkAvailability;
+				expect(available).toBe(false);
+
+				// 2. loadMacPodcasts returns DatabaseNotFoundError
+				const exit = yield* podcastService.loadMacPodcasts.pipe(Effect.exit);
+				expect(exit._tag).toBe("Failure");
+				if (exit._tag === "Failure") {
+					expect(exit.cause._tag).toBe("Fail");
+					if (exit.cause._tag === "Fail") {
+						expect(exit.cause.error).toBeInstanceOf(DatabaseNotFoundError);
+					}
+				}
+			});
+
+			const layer = PodcastServiceLive.pipe(
+				Layer.provide(testFileSystem),
+				Layer.provide(LoggerLive),
+			);
+			await Effect.runPromise(Effect.provide(program, layer));
+		});
+	});
+
+	describe("MetadataEditorLive (Real Implementation)", () => {
+		it("writes ID3 tags to a file", async () => {
+			const tempFile = join(import.meta.dir, "temp-test-tag.mp3");
+			await Bun.write(tempFile, new Uint8Array(0));
+
+			const program = Effect.gen(function* () {
+				const editor = yield* MetadataEditor;
+				yield* editor.write(tempFile, {
+					title: "Test Episode",
+					artist: "Test Artist",
+					album: "Test Album",
+				});
+			});
+
+			try {
+				await Effect.runPromise(Effect.provide(program, MetadataEditorLive));
+				// Verify ID3 tags were written (file size should have increased)
+				const fs = await import("node:fs/promises");
+				const stats = await fs.stat(tempFile);
+				expect(stats.size).toBeGreaterThan(0);
+				await fs.unlink(tempFile);
+			} catch (e) {
+				const fs = await import("node:fs/promises");
+				await fs.unlink(tempFile).catch(() => {});
+				throw e;
+			}
 		});
 	});
 });

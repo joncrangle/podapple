@@ -242,16 +242,20 @@ export const DriveDetectionLive = Layer.effect(
 					new Map<string, string>(initialDrives.map((d) => [d.bsdName, d.id])),
 				);
 				const lastProcessedMap = yield* Ref.make(new Map<string, number>());
-				yield* Ref.set(scanningRef, true);
 
 				return Stream.acquireRelease(
-					Effect.sync(() =>
-						Bun.spawn(["diskutil", "activity"], {
+					Effect.gen(function* () {
+						yield* Ref.set(scanningRef, true);
+						return Bun.spawn(["diskutil", "activity"], {
 							stdout: "pipe",
-							stderr: "pipe",
+							stderr: "ignore",
+						});
+					}),
+					(process) =>
+						Effect.gen(function* () {
+							process.kill();
+							yield* Ref.set(scanningRef, false);
 						}),
-					),
-					(process) => Effect.sync(() => process.kill()),
 				).pipe(
 					Stream.flatMap((process) =>
 						Stream.fromAsyncIterable(
@@ -284,22 +288,30 @@ export const DriveDetectionLive = Layer.effect(
 					Stream.mapEffect((event) =>
 						Effect.gen(function* () {
 							const now = Date.now();
-							const lastProcessedMapVal = yield* Ref.get(lastProcessedMap);
-							const lastProcessed = lastProcessedMapVal.get(event.bsdName) ?? 0;
 							const map = yield* Ref.get(driveIdMap);
 
-							// Skip redundant processing within 2 seconds for Changed events
-							if (event.type === "Changed" && now - lastProcessed < 2000) {
+							const shouldProcess = yield* Ref.modify(lastProcessedMap, (m) => {
+								const lastProcessed = m.get(event.bsdName) ?? 0;
+								if (event.type === "Changed" && now - lastProcessed < 2000) {
+									return [false, m] as const;
+								}
+								if (
+									event.type === "Appeared" &&
+									map.has(event.bsdName) &&
+									now - lastProcessed < 2000
+								) {
+									return [false, m] as const;
+								}
+								const newMap = new Map(m).set(event.bsdName, now);
+								return [true, newMap] as const;
+							});
+
+							if (!shouldProcess) {
 								return Option.none();
 							}
 
 							if (event.type === "Appeared") {
-								if (map.has(event.bsdName) && now - lastProcessed < 2000) {
-									return Option.none();
-								}
-
 								const details = yield* getDriveDetails(event.bsdName, logger);
-								yield* Ref.update(lastProcessedMap, (m) => new Map(m).set(event.bsdName, now));
 
 								if (Option.isSome(details)) {
 									const drive = details.value;
@@ -329,8 +341,6 @@ export const DriveDetectionLive = Layer.effect(
 
 							// Handle DiskDescriptionChanged
 							const details = yield* getDriveDetails(event.bsdName, logger);
-							yield* Ref.update(lastProcessedMap, (m) => new Map(m).set(event.bsdName, now));
-
 							const existingDriveId = map.get(event.bsdName);
 
 							if (Option.isSome(details)) {
@@ -357,7 +367,6 @@ export const DriveDetectionLive = Layer.effect(
 						}),
 					),
 					Stream.filterMap((o) => o),
-					Stream.ensuring(Ref.set(scanningRef, false)),
 				);
 			}),
 		);

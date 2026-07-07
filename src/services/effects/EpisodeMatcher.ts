@@ -31,8 +31,16 @@ const matchEpisodeImpl = (
 	const expectedPath = buildExpectedDrivePathImpl(showName, episode.title);
 	if (driveIndex.has(expectedPath)) return true;
 
+	const sanitizedShow = sanitizeFilename(showName);
+	const showPrefix = `${sanitizedShow}/`;
+
 	// 2. Cascade through other matches
-	for (const [_key, info] of driveIndex) {
+	for (const [key, info] of driveIndex) {
+		// Only check fallback matches for the same show to avoid false positives across different shows
+		if (!key.startsWith(showPrefix)) {
+			continue;
+		}
+
 		// Size-based matching (Legacy fallback)
 		if (episode.fileSize && info.size && info.size === episode.fileSize) {
 			return true;

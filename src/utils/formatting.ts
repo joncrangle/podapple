@@ -10,7 +10,8 @@ const BYTES_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
  * Formats bytes into human-readable string
  * e.g., 1073741824 → "1.0 GB"
  */
-export function formatBytes(bytes: number): string {
+export function formatBytes(rawBytes: number): string {
+	const bytes = Math.max(0, rawBytes);
 	if (bytes === 0) return "0 B";
 
 	let unitIndex = 0;
@@ -34,6 +35,10 @@ export function formatBytes(bytes: number): string {
  * Replaces invalid characters with dashes and normalizes spaces.
  */
 export function sanitizeFilename(name: string): string {
+	if (!name || name.trim().length === 0) {
+		return "untitled";
+	}
+
 	// Replace invalid chars with -
 	// < > : " / \ | ? *
 	let sanitized = name.replace(/[<>:"/\\|?*]/g, "-");
@@ -41,6 +46,10 @@ export function sanitizeFilename(name: string): string {
 	sanitized = sanitized.replace(/&/g, "and");
 	sanitized = sanitized.replace(/'/g, "");
 	sanitized = sanitized.replace(/\s+/g, "_");
+
+	if (sanitized.length === 0) {
+		return "untitled";
+	}
 
 	// Truncate to 100 chars (FAT32 limit is higher but this is safe)
 	if (sanitized.length > 100) {
@@ -86,9 +95,10 @@ export function groupEpisodesByPodcast(episodes: PodcastEpisode[]): Podcast[] {
 			id: ep.id,
 			title: ep.title,
 			duration: ep.duration,
-			publishedAt: ep.published,
-			synced: false,
-			assetUrl: ep.filePath,
+			published: ep.published,
+			onDrive: false,
+			filePath: ep.filePath,
+			fileSize: ep.fileSize,
 		})),
 	}));
 }
@@ -97,7 +107,8 @@ export function groupEpisodesByPodcast(episodes: PodcastEpisode[]): Podcast[] {
  * Format duration matching original Go formatDuration().
  * Returns HH:MM:SS for durations >= 1 hour, MM:SS otherwise.
  */
-export function formatDuration(seconds: number): string {
+export function formatDuration(rawSeconds: number): string {
+	const seconds = Math.max(0, rawSeconds);
 	const hours = Math.floor(seconds / 3600);
 	const minutes = Math.floor((seconds % 3600) / 60);
 	const secs = Math.floor(seconds % 60);
@@ -116,7 +127,7 @@ export function formatDuration(seconds: number): string {
  * Format date matching original Go implementation (2006-01-02 format).
  */
 export function formatDate(date: Date): string {
-	if (date.getTime() === 0) {
+	if (Number.isNaN(date.getTime()) || date.getTime() === 0) {
 		return "Unknown";
 	}
 
@@ -131,8 +142,12 @@ export function formatDate(date: Date): string {
  * Truncates a string to a maximum length, adding an ellipsis if needed.
  */
 export function truncateString(str: string, maxLength: number): string {
+	if (maxLength <= 0) return "";
 	if (str.length <= maxLength) {
 		return str;
+	}
+	if (maxLength <= 3) {
+		return ".".repeat(maxLength);
 	}
 	return `${str.slice(0, maxLength - 3)}...`;
 }
@@ -174,14 +189,12 @@ export const mapPodcastsToEpisodes = (podcasts: Podcast[]): PodcastEpisode[] => 
 			id: ep.id,
 			title: ep.title,
 			showName: p.title,
-			podcastId: p.id,
-			podcastTitle: p.title,
-			filePath: ep.assetUrl,
-			published: ep.publishedAt,
+			filePath: ep.filePath,
+			published: ep.published,
 			duration: ep.duration,
-			fileSize: ep.fileSize ?? 0,
+			fileSize: ep.fileSize,
 			selected: false,
-			onDrive: true,
+			onDrive: ep.onDrive,
 		})),
 	);
 };

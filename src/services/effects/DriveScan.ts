@@ -1,15 +1,13 @@
 import { extname, join } from "node:path";
-import { Context, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from "effect";
 import { EpisodeMatcher } from "@/services/effects/EpisodeMatcher";
 import { FileSystem } from "@/services/effects/FileSystem";
+import { Logger } from "@/services/effects/Logger";
 import type { Podcast } from "@/types/podcast";
 
-export class DriveScanError extends Error {
-	readonly _tag = "DriveScanError";
-	constructor(readonly error: unknown) {
-		super(String(error));
-	}
-}
+export class DriveScanError extends Data.TaggedError("DriveScanError")<{
+	readonly cause: unknown;
+}> {}
 
 /**
  * DriveScan Service Tag
@@ -20,19 +18,19 @@ export class DriveScan extends Context.Tag("DriveScan")<
 		/** Scans a drive for existing podcast files in the 'Podcasts' folder */
 		readonly scanDrive: (
 			drivePath: string,
-		) => Effect.Effect<Podcast[], DriveScanError, FileSystem | EpisodeMatcher>;
+		) => Effect.Effect<Podcast[], DriveScanError, FileSystem | EpisodeMatcher | Logger>;
 		/** Builds a lookup index of podcast files on the drive for faster matching */
 		readonly buildDriveIndex: (
 			drivePath: string,
 		) => Effect.Effect<
 			Map<string, { id: string; title: string; path: string; size: number }>,
 			DriveScanError,
-			FileSystem | EpisodeMatcher
+			FileSystem | EpisodeMatcher | Logger
 		>;
 		/** Checks if a drive contains a 'Podcasts' folder at the root */
 		readonly hasPodcastsFolder: (
 			drivePath: string,
-		) => Effect.Effect<boolean, DriveScanError, FileSystem>;
+		) => Effect.Effect<boolean, DriveScanError, FileSystem | Logger>;
 	}
 >() {}
 
@@ -60,8 +58,11 @@ function parsePodcastFile(
 		const titlePart = dateMatch[2];
 		if (titlePart) {
 			const dateStr = dateMatch[1];
-			title = titlePart;
-			date = new Date(dateStr ?? "");
+			const parsedDate = new Date(dateStr ?? "");
+			if (!isNaN(parsedDate.getTime())) {
+				title = titlePart;
+				date = parsedDate;
+			}
 		}
 	}
 
@@ -69,32 +70,44 @@ function parsePodcastFile(
 }
 
 /**
- * Recursively find all files in a directory
+ * Recursively find all files in a directory in parallel
  */
 const getFilesRecursive = (
 	dir: string,
 	baseRel: string,
-): Effect.Effect<string[], never, FileSystem> =>
+): Effect.Effect<string[], never, FileSystem | Logger> =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem;
-		const results: string[] = [];
-		const entries = yield* fs.list(dir).pipe(Effect.catchAll(() => Effect.succeed([])));
+		const logger = yield* Logger;
+		const entries = yield* fs.list(dir).pipe(
+			Effect.catchAll((err) =>
+				Effect.gen(function* () {
+					yield* logger.error(`Failed to list directory ${dir}`, err);
+					return [] as string[];
+				}),
+			),
+		);
 
-		for (const entry of entries) {
-			const fullPath = join(dir, entry);
-			const relPath = baseRel ? join(baseRel, entry) : entry;
-			const isDir = yield* fs
-				.isDirectory(fullPath)
-				.pipe(Effect.catchAll(() => Effect.succeed(false)));
+		const subResults = yield* Effect.forEach(
+			entries,
+			(entry) =>
+				Effect.gen(function* () {
+					const fullPath = join(dir, entry);
+					const relPath = baseRel ? join(baseRel, entry) : entry;
+					const isDir = yield* fs
+						.isDirectory(fullPath)
+						.pipe(Effect.catchAll(() => Effect.succeed(false)));
 
-			if (isDir) {
-				const sub = yield* getFilesRecursive(fullPath, relPath);
-				results.push(...sub);
-			} else {
-				results.push(relPath);
-			}
-		}
-		return results;
+					if (isDir) {
+						return yield* getFilesRecursive(fullPath, relPath);
+					} else {
+						return [relPath];
+					}
+				}),
+			{ concurrency: 10 },
+		);
+
+		return subResults.flat();
 	});
 
 /**
@@ -106,25 +119,73 @@ export const DriveScanLive = Layer.succeed(
 		scanDrive: (drivePath) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem;
+				const logger = yield* Logger;
 				const podcastsMap = new Map<string, Podcast>();
 				const podcastsDir = join(drivePath, "Podcasts");
 
+				yield* logger.debug(`Starting drive scan: ${podcastsDir}`);
+
 				const exists = yield* fs.exists(podcastsDir);
-				if (!exists) return [];
+				if (!exists) {
+					yield* logger.info(`No Podcasts directory found at ${podcastsDir}`);
+					return [];
+				}
 
 				const files = yield* getFilesRecursive(podcastsDir, "");
+				yield* logger.debug(`Found ${files.length} total files under Podcasts folder`);
 
-				for (const file of files) {
+				const candidates = files.flatMap((file) => {
 					const filename = file.split(/[/\\]/).pop() ?? "";
-					if (fs.isSystemHiddenFile(filename)) continue;
-
-					if (!fs.isAudioFile(filename)) continue;
+					if (fs.isSystemHiddenFile(filename)) return [];
+					if (!fs.isAudioFile(filename)) return [];
 
 					const info = parsePodcastFile(file);
-					if (!info) continue;
+					if (!info) return [];
 
-					const { showName, title, date } = info;
+					return [{ file, info }];
+				});
 
+				yield* logger.debug(`Identified ${candidates.length} audio files to process`);
+
+				const episodesData = yield* Effect.forEach(
+					candidates,
+					({ file, info }) =>
+						Effect.gen(function* () {
+							const { showName, title, date } = info;
+							const fullPath = join(podcastsDir, file);
+
+							let published = date;
+							let size = 0;
+
+							const statsExit = yield* fs.stat(fullPath).pipe(Effect.exit);
+							if (statsExit._tag === "Success") {
+								size = statsExit.value.size;
+								if (!published) {
+									published = statsExit.value.mtime;
+								}
+							}
+
+							if (!published) {
+								published = new Date();
+							}
+
+							return {
+								showName,
+								episode: {
+									id: `${showName}-${title}`,
+									title: title.replace(/_/g, " "),
+									duration: 0,
+									published,
+									onDrive: true,
+									filePath: fullPath,
+									fileSize: size,
+								},
+							};
+						}),
+					{ concurrency: 20 },
+				);
+
+				for (const { showName, episode } of episodesData) {
 					if (!podcastsMap.has(showName)) {
 						podcastsMap.set(showName, {
 							id: showName,
@@ -136,86 +197,89 @@ export const DriveScanLive = Layer.succeed(
 					}
 
 					const podcast = podcastsMap.get(showName)!;
-					const fullPath = join(podcastsDir, file);
-
-					let publishedAt = date;
-					let size = 0;
-
-					const statsExit = yield* fs.stat(fullPath).pipe(Effect.exit);
-					if (statsExit._tag === "Success") {
-						size = statsExit.value.size;
-						if (!publishedAt) {
-							publishedAt = statsExit.value.mtime;
-						}
-					}
-
-					if (!publishedAt) {
-						publishedAt = new Date();
-					}
-
-					podcast.episodes.push({
-						id: `${showName}-${title}`,
-						title: title.replace(/_/g, " "),
-						duration: 0,
-						publishedAt,
-						synced: true,
-						assetUrl: fullPath,
-						fileSize: size,
-					});
+					podcast.episodes.push(episode);
 					podcast.episodeCount = podcast.episodes.length;
 				}
+
+				yield* logger.info(
+					`Drive scan completed. Found ${podcastsMap.size} shows and ${episodesData.length} total episodes.`,
+				);
+
 				return Array.from(podcastsMap.values());
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError(err)))),
+			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
 
 		buildDriveIndex: (drivePath) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem;
 				const matcher = yield* EpisodeMatcher;
+				const logger = yield* Logger;
 				const index = new Map<string, { id: string; title: string; path: string; size: number }>();
 				const podcastsDir = join(drivePath, "Podcasts");
 
+				yield* logger.debug(`Building drive index for ${podcastsDir}`);
+
 				const exists = yield* fs.exists(podcastsDir);
-				if (!exists) return index;
+				if (!exists) {
+					yield* logger.debug(`No Podcasts directory found at ${podcastsDir} for indexing`);
+					return index;
+				}
 
 				const files = yield* getFilesRecursive(podcastsDir, "");
-
-				for (const file of files) {
+				const candidates = files.flatMap((file) => {
 					const filename = file.split(/[/\\]/).pop() ?? "";
-					if (fs.isSystemHiddenFile(filename)) continue;
-
-					if (!fs.isAudioFile(filename)) continue;
+					if (fs.isSystemHiddenFile(filename)) return [];
+					if (!fs.isAudioFile(filename)) return [];
 
 					const info = parsePodcastFile(file);
-					if (!info) continue;
+					if (!info) return [];
 
-					const { showName, title } = info;
+					return [{ file, info }];
+				});
 
-					const key = matcher.buildExpectedDrivePath(showName, title);
-					const fullPath = join(podcastsDir, file);
+				const indexEntries = yield* Effect.forEach(
+					candidates,
+					({ file, info }) =>
+						Effect.gen(function* () {
+							const { showName, title } = info;
+							const key = matcher.buildExpectedDrivePath(showName, title);
+							const fullPath = join(podcastsDir, file);
 
-					let size = 0;
-					const statsExit = yield* fs.stat(fullPath).pipe(Effect.exit);
-					if (statsExit._tag === "Success") {
-						size = statsExit.value.size;
-					}
+							let size = 0;
+							const statsExit = yield* fs.stat(fullPath).pipe(Effect.exit);
+							if (statsExit._tag === "Success") {
+								size = statsExit.value.size;
+							}
 
-					index.set(key, {
-						id: key,
-						title: title,
-						path: fullPath,
-						size,
-					});
+							return [
+								key,
+								{
+									id: key,
+									title: title,
+									path: fullPath,
+									size,
+								},
+							] as const;
+						}),
+					{ concurrency: 20 },
+				);
+
+				for (const [key, val] of indexEntries) {
+					index.set(key, val);
 				}
+
+				yield* logger.info(`Drive index built with ${index.size} episodes`);
 				return index;
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError(err)))),
+			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
 
 		hasPodcastsFolder: (drivePath) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem;
+				const logger = yield* Logger;
 				const podcastsDir = join(drivePath, "Podcasts");
 				const exists = yield* fs.exists(podcastsDir);
+				yield* logger.debug(`Checked folder existence at ${podcastsDir}: ${exists}`);
 				return exists;
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError(err)))),
+			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
 	}),
 );
 
@@ -248,9 +312,9 @@ export const createDriveScanTest = (mockPodcasts: MockDrivePodcast[] = []) =>
 					id: ep.id,
 					title: ep.title,
 					duration: 0,
-					publishedAt: new Date(),
-					synced: true,
-					assetUrl: ep.path,
+					published: new Date(),
+					onDrive: true,
+					filePath: ep.path,
 					fileSize: ep.size,
 				})),
 			}));

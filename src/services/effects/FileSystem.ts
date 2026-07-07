@@ -142,20 +142,12 @@ export const FileSystemLive = Layer.effect(
 			copyFile: (src, dest) =>
 				Effect.gen(function* () {
 					yield* logger.debug(`Copying file: ${src} -> ${dest}`);
-					const data = yield* Effect.tryPromise({
-						try: () => Bun.file(src).bytes(),
-						catch: () => new CopyError({ src, dest, cause: "Source not found" }),
-					}).pipe(
-						Effect.tapError((err) =>
-							logger.error(`Failed to read source for copy: ${src}`, err.cause),
-						),
-					);
 					yield* Effect.tryPromise({
-						try: () => Bun.write(dest, data),
+						try: () => Bun.write(dest, Bun.file(src)),
 						catch: (cause) => new CopyError({ src, dest, cause }),
 					}).pipe(
 						Effect.tapError((err) =>
-							logger.error(`Failed to write destination for copy: ${dest}`, err.cause),
+							logger.error(`Failed to copy file from ${src} to ${dest}`, err.cause),
 						),
 					);
 				}),
@@ -300,8 +292,8 @@ export const FileSystemLive = Layer.effect(
 					const { readdir } = yield* Effect.promise(() => import("node:fs/promises"));
 					const entries = yield* Effect.tryPromise({
 						try: () => readdir(path),
-						catch: () => [] as string[],
-					}).pipe(Effect.orDie);
+						catch: (cause) => new ReadDirError({ path, cause }),
+					}).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
 					const visibleFiles = entries.filter((e) => !isSystemHiddenFileImpl(e));
 					return visibleFiles.length === 0;
 				}),

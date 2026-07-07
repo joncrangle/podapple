@@ -2,22 +2,15 @@ export interface Episode {
 	id: string;
 	title: string;
 	duration: number;
-	publishedAt: Date;
-	synced: boolean;
-	assetUrl: string;
-	fileSize?: number;
+	published: Date;
+	onDrive: boolean;
+	filePath: string;
+	fileSize: number;
 }
 
-export interface PodcastEpisode {
-	id: string;
-	title: string;
+export interface PodcastEpisode extends Episode {
 	showName: string;
-	filePath: string;
-	published: Date;
-	duration: number; // seconds
-	fileSize: number;
 	selected: boolean;
-	onDrive: boolean;
 }
 
 export interface Podcast {

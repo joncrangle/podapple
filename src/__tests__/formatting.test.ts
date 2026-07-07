@@ -12,6 +12,7 @@ import {
 	mapPodcastsToEpisodes,
 	markEpisodesOnDrive,
 	sanitizeFilename,
+	truncateString,
 } from "@/utils/formatting";
 
 describe("Formatting Utils", () => {
@@ -48,6 +49,10 @@ describe("Formatting Utils", () => {
 			const bytes = 15.2 * 1024 * 1024 * 1024;
 			expect(formatBytes(bytes)).toBe("15.2 GB");
 		});
+
+		test("handles negative bytes", () => {
+			expect(formatBytes(-1024)).toBe("0 B");
+		});
 	});
 
 	describe("sanitizeFilename", () => {
@@ -71,6 +76,11 @@ describe("Formatting Utils", () => {
 		test("removes apostrophes", () => {
 			expect(sanitizeFilename("It's a wonderful life")).toBe("Its_a_wonderful_life");
 		});
+
+		test("handles empty or whitespace-only names", () => {
+			expect(sanitizeFilename("")).toBe("untitled");
+			expect(sanitizeFilename("   ")).toBe("untitled");
+		});
 	});
 
 	describe("cleanFileUrl", () => {
@@ -82,6 +92,11 @@ describe("Formatting Utils", () => {
 
 		test("returns original string if not a file:// URL", () => {
 			expect(cleanFileUrl("/Users/user/file.txt")).toBe("/Users/user/file.txt");
+		});
+
+		test("returns original string for malformed file:// URLs", () => {
+			expect(cleanFileUrl("file:///foo%2")).toBe("file:///foo%2");
+			expect(cleanFileUrl("file://%")).toBe("file://%");
 		});
 	});
 
@@ -97,6 +112,10 @@ describe("Formatting Utils", () => {
 		test("pads single digits", () => {
 			expect(formatDuration(5)).toBe("00:05");
 		});
+
+		test("handles negative durations", () => {
+			expect(formatDuration(-120)).toBe("00:00");
+		});
 	});
 
 	describe("formatDate", () => {
@@ -107,6 +126,11 @@ describe("Formatting Utils", () => {
 
 		test("handles zero date", () => {
 			const date = new Date(0);
+			expect(formatDate(date)).toBe("Unknown");
+		});
+
+		test("handles invalid date", () => {
+			const date = new Date("invalid-date-string");
 			expect(formatDate(date)).toBe("Unknown");
 		});
 	});
@@ -134,6 +158,21 @@ describe("Formatting Utils", () => {
 			} as PodcastEpisode;
 
 			expect(getEpisodeDescription(ep)).toBe("My Show • 2023-01-01 • 01:00:00");
+		});
+	});
+
+	describe("truncateString", () => {
+		test("does not truncate if under length", () => {
+			expect(truncateString("hello", 10)).toBe("hello");
+		});
+
+		test("truncates and appends ellipsis", () => {
+			expect(truncateString("hello world", 8)).toBe("hello...");
+		});
+
+		test("guards short lengths", () => {
+			expect(truncateString("hello", 2)).toBe("..");
+			expect(truncateString("hello", 0)).toBe("");
 		});
 	});
 
@@ -184,9 +223,10 @@ describe("Formatting Utils", () => {
 								id: "1",
 								title: "Ep 1",
 								duration: 3600,
-								publishedAt: new Date("2023-01-01"),
-								synced: false,
-								assetUrl: "/path/to/ep1.mp3",
+								published: new Date("2023-01-01"),
+								onDrive: true,
+								filePath: "/path/to/ep1.mp3",
+								fileSize: 0,
 							},
 						],
 					},

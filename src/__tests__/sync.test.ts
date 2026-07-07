@@ -30,25 +30,28 @@ describe("SyncEngine", () => {
 					id: "ep-1",
 					title: "Episode 1: Getting Started",
 					duration: 3600,
-					publishedAt: new Date("2024-01-15"),
-					synced: false,
-					assetUrl: "/path/to/ep1.mp3",
+					published: new Date("2024-01-15"),
+					onDrive: false,
+					filePath: "/path/to/ep1.mp3",
+					fileSize: 0,
 				},
 				{
 					id: "ep-2",
 					title: "Episode 2: Deep Dive",
 					duration: 1800,
-					publishedAt: new Date("2024-01-22"),
-					synced: true, // Already synced - should be skipped
-					assetUrl: "/path/to/ep2.mp3",
+					published: new Date("2024-01-22"),
+					onDrive: true, // Already synced - should be skipped
+					filePath: "/path/to/ep2.mp3",
+					fileSize: 0,
 				},
 				{
 					id: "ep-3",
 					title: "Episode 3: Q&A Session",
 					duration: 2400,
-					publishedAt: new Date("2024-01-29"),
-					synced: false,
-					assetUrl: "/path/to/ep3.mp3",
+					published: new Date("2024-01-29"),
+					onDrive: false,
+					filePath: "/path/to/ep3.mp3",
+					fileSize: 0,
 				},
 			],
 		},
@@ -62,9 +65,10 @@ describe("SyncEngine", () => {
 					id: "ep-4",
 					title: "The Universe Explained",
 					duration: 4200,
-					publishedAt: new Date("2024-02-01"),
-					synced: false,
-					assetUrl: "/path/to/ep4.mp3",
+					published: new Date("2024-02-01"),
+					onDrive: false,
+					filePath: "/path/to/ep4.mp3",
+					fileSize: 0,
 				},
 			],
 		},
@@ -356,9 +360,10 @@ describe("SyncEngine", () => {
 								id: "e1",
 								title: "Ep",
 								duration: 100,
-								publishedAt: new Date("2024-01-01"),
-								synced: false,
-								assetUrl: "/path/to/test.mp3",
+								published: new Date("2024-01-01"),
+								onDrive: false,
+								filePath: "/path/to/test.mp3",
+								fileSize: 0,
 							},
 						],
 					},
@@ -426,7 +431,7 @@ describe("SyncEngine", () => {
 			expect(progressUpdates.length).toBeGreaterThan(0);
 		});
 
-		it("fails with CopyError when source not found", async () => {
+		it("fails with SyncCopyError when source not found", async () => {
 			const program = Effect.gen(function* () {
 				const engine = yield* SyncEngine;
 				return yield* engine.copyFileWithProgress("/missing.mp3", "/dest.mp3", () => {});
