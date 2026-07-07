@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/joncrangle/podapple/compare/v0.2.1...v0.3.0) (2026-07-07)
+
+
+### Features
+
+* improve drive detection stability, reliability, and event handling ([359a5e3](https://github.com/joncrangle/podapple/commit/359a5e369202386dba153664f7f937068b588353))
+
+
+### Bug Fixes
+
+* delete empty show directories when manually removing episodes from drive ([0ae3cd2](https://github.com/joncrangle/podapple/commit/0ae3cd20cb8804a9576ed7ff0f9a488b500ad0a8))
+
 ## [0.2.1](https://github.com/joncrangle/podapple/compare/v0.2.0...v0.2.1) (2026-04-29)
 
 ### Bug Fixes
