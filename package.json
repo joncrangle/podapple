@@ -1,6 +1,6 @@
 {
 	"name": "podapple",
-	"version": "0.2.1",
+	"version": "0.3.0",
 	"description": "A modern, terminal-based Apple Podcasts synchronizer built for speed and simplicity.",
 	"bin": {
 		"podapple": "./src/index.tsx"
