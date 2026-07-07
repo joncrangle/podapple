@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect";
 import { onMount, onCleanup } from "solid-js";
 import {
@@ -486,11 +487,35 @@ export const useAppLogic = () => {
 		run(
 			Effect.gen(function* () {
 				const fs = yield* FileSystem;
+				const parentDirs = new Set<string>();
+				for (const ep of selected) {
+					parentDirs.add(dirname(ep.filePath));
+				}
+
+				// Delete the episode files
 				yield* Effect.forEach(
 					selected,
 					(ep) => fs.remove(ep.filePath).pipe(Effect.catchAll(() => Effect.void)),
 					{ discard: true },
 				);
+
+				// Clean up empty parent directories
+				yield* Effect.forEach(
+					Array.from(parentDirs),
+					(dir) =>
+						Effect.gen(function* () {
+							const exists = yield* fs.exists(dir);
+							if (exists) {
+								yield* fs.cleanupSystemHiddenFiles(dir).pipe(Effect.catchAll(() => Effect.void));
+								const empty = yield* fs.isDirEmpty(dir);
+								if (empty) {
+									yield* fs.remove(dir).pipe(Effect.catchAll(() => Effect.void));
+								}
+							}
+						}),
+					{ discard: true },
+				);
+
 				if (drive) {
 					yield* loadDrivePodcastsEffect(drive);
 				}

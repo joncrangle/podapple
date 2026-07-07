@@ -185,6 +185,41 @@ describe("FileSystem Service", () => {
 			expect(result.size).toBe(11); // "hello world" = 11 bytes
 		});
 	});
+
+	describe("isDirEmpty", () => {
+		it("returns true for empty directories", async () => {
+			const files = new Map<string, Uint8Array>();
+			const program = Effect.gen(function* () {
+				const fs = yield* FileSystem;
+				return yield* fs.isDirEmpty("/empty_dir");
+			});
+
+			const result = await Effect.runPromise(Effect.provide(program, createFileSystemTest(files)));
+			expect(result).toBe(true);
+		});
+
+		it("returns false for non-empty directories", async () => {
+			const files = new Map<string, Uint8Array>([["/nonempty_dir/file.txt", new Uint8Array()]]);
+			const program = Effect.gen(function* () {
+				const fs = yield* FileSystem;
+				return yield* fs.isDirEmpty("/nonempty_dir");
+			});
+
+			const result = await Effect.runPromise(Effect.provide(program, createFileSystemTest(files)));
+			expect(result).toBe(false);
+		});
+
+		it("ignores system hidden files when checking if empty", async () => {
+			const files = new Map<string, Uint8Array>([["/dir/.DS_Store", new Uint8Array()]]);
+			const program = Effect.gen(function* () {
+				const fs = yield* FileSystem;
+				return yield* fs.isDirEmpty("/dir");
+			});
+
+			const result = await Effect.runPromise(Effect.provide(program, createFileSystemTest(files)));
+			expect(result).toBe(true);
+		});
+	});
 });
 
 describe("DriveDetection Service", () => {
