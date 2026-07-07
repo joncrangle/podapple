@@ -14,13 +14,13 @@ describe("DriveDetection logic", () => {
 		}
 	});
 
-	test("parseActivityLine - DiskDescriptionChanged (the fix)", () => {
+	test("parseActivityLine - DiskDescriptionChanged (emits Appeared)", () => {
 		const line = "***DiskDescriptionChanged ('disk4s1', 'USB_DRIVE', 'MS-DOS FAT32')";
 		const result = parseActivityLine(line);
 
 		expect(Option.isSome(result)).toBe(true);
 		if (Option.isSome(result)) {
-			expect(result.value.type).toBe("Changed");
+			expect(result.value.type).toBe("Appeared");
 			expect(result.value.bsdName).toBe("disk4s1");
 		}
 	});

@@ -4,5 +4,5 @@ export interface Drive {
 	bsdName: string;
 	mountPoint: string;
 	totalSpace: number; // bytes
-	freeSpace: number; // bytes
+	freeSpace: number; // bytes, -1 if unknown
 }
