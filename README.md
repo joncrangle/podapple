@@ -42,6 +42,14 @@ brew tap joncrangle/tap
 brew install podapple
 ```
 
+#### Mise
+
+```bash
+mise use -g github:joncrangle/podapple@latest
+```
+
+Installs the latest release binary for your Mac's architecture and registers it as a globally managed [mise](https://mise.jdx.dev) tool.
+
 #### Binary
 
 Download a prebuilt binary for Apple Silicon (arm64) or Intel Mac (x86_64) from the [latest release](https://github.com/joncrangle/podapple/releases).
