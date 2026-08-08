@@ -15,7 +15,7 @@
 	},
 	"dependencies": {
 		"@effect/schema": "^0.75.5",
-		"@opentui/core": "^0.4.5",
+		"@opentui/core": "^0.5.1",
 		"@opentui/solid": "^0.4.5",
 		"effect": "^3.22.1",
 		"node-id3": "^0.2.9",
