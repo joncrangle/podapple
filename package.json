@@ -31,7 +31,7 @@
 		"typescript": "^5.9.3"
 	},
 	"optionalDependencies": {
-		"@opentui/core-darwin-arm64": "^0.4.5",
+		"@opentui/core-darwin-arm64": "^0.5.1",
 		"@opentui/core-darwin-x64": "^0.4.5"
 	}
 }
