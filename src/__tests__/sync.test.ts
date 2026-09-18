@@ -421,7 +421,9 @@ describe("SyncEngine", () => {
 					yield* engine.copyFileWithProgress(sourcePath, destinationPath, () => {});
 				});
 
-				const layer = Layer.mergeAll(SyncEngineLive, FileSystemLive).pipe(Layer.provide(LoggerLive));
+				const layer = Layer.mergeAll(SyncEngineLive, FileSystemLive).pipe(
+					Layer.provide(LoggerLive),
+				);
 				await Effect.runPromise(Effect.provide(program, layer));
 
 				expect(await Bun.file(destinationPath).bytes()).toEqual(content);
