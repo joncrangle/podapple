@@ -1,4 +1,4 @@
-import { createStore } from "solid-js/store";
+import { createStore } from "solid-js";
 import type { DebugMessage } from "@/components/DebugPopup";
 import type { Drive } from "@/types/drive";
 import type { AppView, FocusedPane } from "@/types/keyboard";
@@ -6,6 +6,7 @@ import type { PodcastEpisode } from "@/types/podcast";
 
 export interface TransferProgress {
 	currentFile: string;
+	lastFile: string;
 	filesDone: number;
 	totalFiles: number;
 	bytesTransferred: number;
@@ -53,6 +54,7 @@ const initialState: AppState = {
 	isScanning: false,
 	transferProgress: {
 		currentFile: "",
+		lastFile: "",
 		filesDone: 0,
 		totalFiles: 0,
 		bytesTransferred: 0,
@@ -68,67 +70,157 @@ const initialState: AppState = {
 
 export const [state, setState] = createStore<AppState>(initialState);
 
+const updateState = (update: (draft: AppState) => void): void => {
+	setState(update);
+};
+
+const resolveUpdate = <T>(value: T | ((previous: T) => T), previous: T): T =>
+	typeof value === "function" ? (value as (previous: T) => T)(previous) : value;
+
 export const actions = {
-	setAppView: (view: AppView) => setState("appView", view),
-	setFocusedPane: (pane: FocusedPane) => setState("focusedPane", pane),
-	setMacIndex: (index: number | ((prev: number) => number)) => setState("macIndex", index),
-	setDriveIndex: (index: number | ((prev: number) => number)) => setState("driveIndex", index),
-	setDriveMenuIndex: (index: number | ((prev: number) => number)) =>
-		setState("driveMenuIndex", index),
-	setThemeMenuIndex: (index: number | ((prev: number) => number)) =>
-		setState("themeMenuIndex", index),
-	setDebugMenuIndex: (index: number | ((prev: number) => number)) =>
-		setState("debugMenuIndex", index),
-	setMacPodcasts: (episodes: PodcastEpisode[] | ((prev: PodcastEpisode[]) => PodcastEpisode[])) =>
-		setState("macPodcasts", episodes),
-	setDrivePodcasts: (episodes: PodcastEpisode[] | ((prev: PodcastEpisode[]) => PodcastEpisode[])) =>
-		setState("drivePodcasts", episodes),
-	setDrives: (drives: Drive[] | ((prev: Drive[]) => Drive[])) => setState("drives", drives),
-	setCurrentDrive: (drive: Drive | null | ((prev: Drive | null) => Drive | null)) =>
-		setState("currentDrive", drive),
-	setLoadingMac: (loading: boolean) => setState("loadingMac", loading),
-	setLoadingDrive: (loading: boolean) => setState("loadingDrive", loading),
-	setIsScanning: (scanning: boolean) => setState("isScanning", scanning),
+	setAppView: (view: AppView) =>
+		updateState((draft) => {
+			draft.appView = view;
+		}),
+	setFocusedPane: (pane: FocusedPane) =>
+		updateState((draft) => {
+			draft.focusedPane = pane;
+		}),
+	setMacIndex: (index: number | ((previous: number) => number)) =>
+		updateState((draft) => {
+			draft.macIndex = resolveUpdate(index, draft.macIndex);
+		}),
+	setDriveIndex: (index: number | ((previous: number) => number)) =>
+		updateState((draft) => {
+			draft.driveIndex = resolveUpdate(index, draft.driveIndex);
+		}),
+	setDriveMenuIndex: (index: number | ((previous: number) => number)) =>
+		updateState((draft) => {
+			draft.driveMenuIndex = resolveUpdate(index, draft.driveMenuIndex);
+		}),
+	setThemeMenuIndex: (index: number | ((previous: number) => number)) =>
+		updateState((draft) => {
+			draft.themeMenuIndex = resolveUpdate(index, draft.themeMenuIndex);
+		}),
+	setDebugMenuIndex: (index: number | ((previous: number) => number)) =>
+		updateState((draft) => {
+			draft.debugMenuIndex = resolveUpdate(index, draft.debugMenuIndex);
+		}),
+	setMacPodcasts: (
+		episodes: PodcastEpisode[] | ((previous: PodcastEpisode[]) => PodcastEpisode[]),
+	) =>
+		updateState((draft) => {
+			draft.macPodcasts = resolveUpdate(episodes, draft.macPodcasts);
+		}),
+	setDrivePodcasts: (
+		episodes: PodcastEpisode[] | ((previous: PodcastEpisode[]) => PodcastEpisode[]),
+	) =>
+		updateState((draft) => {
+			draft.drivePodcasts = resolveUpdate(episodes, draft.drivePodcasts);
+		}),
+	setDrives: (drives: Drive[] | ((previous: Drive[]) => Drive[])) =>
+		updateState((draft) => {
+			draft.drives = resolveUpdate(drives, draft.drives);
+		}),
+	setCurrentDrive: (drive: Drive | null | ((previous: Drive | null) => Drive | null)) =>
+		updateState((draft) => {
+			draft.currentDrive = resolveUpdate(drive, draft.currentDrive);
+		}),
+	setLoadingMac: (loading: boolean) =>
+		updateState((draft) => {
+			draft.loadingMac = loading;
+		}),
+	setLoadingDrive: (loading: boolean) =>
+		updateState((draft) => {
+			draft.loadingDrive = loading;
+		}),
+	setIsScanning: (scanning: boolean) =>
+		updateState((draft) => {
+			draft.isScanning = scanning;
+		}),
 	updateTransferProgress: (progress: Partial<TransferProgress>) =>
-		setState("transferProgress", (prev) => ({ ...prev, ...progress })),
-	setErrorMsg: (msg: string) => setState("errorMsg", msg),
+		updateState((draft) => {
+			if (progress.currentFile === "Preparing...") {
+				draft.transferProgress.lastFile = "";
+			} else if (progress.currentFile) {
+				draft.transferProgress.lastFile = progress.currentFile;
+			}
+			Object.assign(draft.transferProgress, progress);
+		}),
+	setErrorMsg: (msg: string) =>
+		updateState((draft) => {
+			draft.errorMsg = msg;
+		}),
 	addDebugMessage: (message: string, type: DebugMessage["type"] = "info") => {
-		setState("debugMessages", (prev) => {
-			const next = [...prev, { timestamp: Date.now(), message, type }];
-			return next.length > 500 ? next.slice(-500) : next;
+		updateState((draft) => {
+			draft.debugMessages.push({ timestamp: Date.now(), message, type });
+			if (draft.debugMessages.length > 500) {
+				draft.debugMessages.splice(0, draft.debugMessages.length - 500);
+			}
 		});
 	},
-	clearDebugMessages: () => setState("debugMessages", []),
-	setLastKey: (key: string | null) => setState("lastKey", key),
-	setLastSavedTheme: (theme: string) => setState("lastSavedTheme", theme),
-	setFavoriteDrives: (drives: string[]) => setState("favoriteDrives", drives),
+	clearDebugMessages: () =>
+		updateState((draft) => {
+			draft.debugMessages = [];
+		}),
+	setLastKey: (key: string | null) =>
+		updateState((draft) => {
+			draft.lastKey = key;
+		}),
+	setLastSavedTheme: (theme: string) =>
+		updateState((draft) => {
+			draft.lastSavedTheme = theme;
+		}),
+	setFavoriteDrives: (drives: string[]) =>
+		updateState((draft) => {
+			draft.favoriteDrives = drives;
+		}),
 	toggleFavoriteDrive: (driveId: string) => {
-		setState("favoriteDrives", (prev) => {
-			if (prev.includes(driveId)) {
-				return prev.filter((id) => id !== driveId);
+		updateState((draft) => {
+			const index = draft.favoriteDrives.indexOf(driveId);
+			if (index >= 0) {
+				draft.favoriteDrives.splice(index, 1);
+			} else {
+				draft.favoriteDrives.push(driveId);
 			}
-			return [...prev, driveId];
 		});
 	},
 	toggleMacSelection: (index: number) => {
-		setState("macPodcasts", index, "selected", (s) => !s);
+		updateState((draft) => {
+			const episode = draft.macPodcasts[index];
+			if (episode) episode.selected = !episode.selected;
+		});
 	},
 	toggleAllMacSelection: () => {
 		const allSelected = state.macPodcasts.every((p) => p.selected);
-		setState("macPodcasts", (prev) => prev.map((p) => ({ ...p, selected: !allSelected })));
+		updateState((draft) => {
+			for (const episode of draft.macPodcasts) episode.selected = !allSelected;
+		});
 	},
 	clearMacSelection: () => {
-		setState("macPodcasts", (prev) => prev.map((p) => ({ ...p, selected: false })));
+		updateState((draft) => {
+			for (const episode of draft.macPodcasts) episode.selected = false;
+		});
 	},
 	toggleDriveSelection: (index: number) => {
-		setState("drivePodcasts", index, "selected", (s) => !s);
+		updateState((draft) => {
+			const episode = draft.drivePodcasts[index];
+			if (episode) episode.selected = !episode.selected;
+		});
 	},
 	toggleAllDriveSelection: () => {
 		const allSelected = state.drivePodcasts.every((p) => p.selected);
-		setState("drivePodcasts", (prev) => prev.map((p) => ({ ...p, selected: !allSelected })));
+		updateState((draft) => {
+			for (const episode of draft.drivePodcasts) episode.selected = !allSelected;
+		});
 	},
 	clearDriveSelection: () => {
-		setState("drivePodcasts", (prev) => prev.map((p) => ({ ...p, selected: false })));
+		updateState((draft) => {
+			for (const episode of draft.drivePodcasts) episode.selected = false;
+		});
 	},
-	resetState: () => setState(initialState),
+	resetState: () =>
+		updateState((draft) => {
+			Object.assign(draft, initialState);
+		}),
 };

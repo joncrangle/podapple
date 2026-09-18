@@ -12,7 +12,7 @@ The project is built on **Bun** and uses **TypeScript** with **SolidJS** for the
 
 - **Runtime**: Bun (latest stable)
 - **Language**: TypeScript 5+
-- **Framework**: SolidJS 1.9+
+- **Framework**: SolidJS 2.0.0-rc.9 (this migration branch; stable release is a merge gate)
 - **UI Library**: `@opentui/solid`
 - **Tooling**: Oxlint/Oxfmt (Linting & Formatting), Just (Command Runner)
 
@@ -100,7 +100,7 @@ Enforced by `.oxlintrc.json`, `.oxfmt.json`, and `tsconfig.json`.
 
 - **Signals**: `createSignal` for primitives.
 - **Stores**: `createStore` for objects/arrays (e.g., file lists).
-- **Effects**: `createEffect` for side effects (logging, file I/O).
+- **Lifecycle**: Use `onSettled` for setup and cleanup. Keep state synchronization in event handlers or store actions; do not use rendered `createEffect`/`createRenderEffect` in application code.
 
 ### TUI Constraints
 
@@ -114,7 +114,7 @@ Enforced by `.oxlintrc.json`, `.oxfmt.json`, and `tsconfig.json`.
 ## 5. Error Handling & Debugging
 
 - **No Console Log**: `console.log` breaks the TUI. Use `console.error` (redirected) or file logging.
-- **Error Boundaries**: Wrap major sections in `ErrorBoundary` to prevent crash-to-shell.
+- **Error Boundaries**: Wrap major sections in `Errored` to prevent crash-to-shell.
 - **Debug Mode**: Use `just debug` to enable verbose logging to file.
 
 ---

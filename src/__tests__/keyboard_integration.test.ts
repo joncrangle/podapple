@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import { useAppKeyboard } from "@/hooks/useAppKeyboard";
 import type { useAppLogic } from "@/hooks/useAppLogic";
 import { actions, state } from "@/store";
+import type { Drive } from "@/types/drive";
 import type { PodcastEpisode } from "@/types/podcast";
 
 interface MockKeyboardEvent {
@@ -83,6 +84,17 @@ describe("Keyboard Integration", () => {
 		pressKey("f");
 		expect(state.appView).toBe("driveSelection");
 		expect(mockLogic.scanForDrives).toHaveBeenCalled();
+	});
+
+	it("should clear a stale drive error when selecting a drive with enter", () => {
+		actions.setDrives([{ id: "drive-1", name: "Drive", mountPoint: "/Volumes/Drive" } as Drive]);
+		actions.setErrorMsg("No drive selected");
+		actions.setAppView("driveSelection");
+
+		pressKey("return");
+
+		expect(state.errorMsg).toBe("");
+		expect(state.currentDrive?.id).toBe("drive-1");
 	});
 
 	it("should toggle selection with 'space'", () => {

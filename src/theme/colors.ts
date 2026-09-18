@@ -1,5 +1,4 @@
-import { createSignal } from "solid-js";
-import { createStore, reconcile } from "solid-js/store";
+import { createSignal, createStore, reconcile } from "solid-js";
 import { createTheme, Palettes, type ThemePalette } from "./themes";
 
 export type Theme = ReturnType<typeof createTheme>;
@@ -19,4 +18,9 @@ export function setTheme(themeName: string) {
 		setColors(reconcile(theme));
 		setPalette(palette);
 	}
+}
+
+export function previewThemeAt(index: number): void {
+	const themeName = Themes[index];
+	if (themeName) setTheme(themeName);
 }

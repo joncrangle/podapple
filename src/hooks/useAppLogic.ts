@@ -1,6 +1,6 @@
 import { dirname } from "node:path";
 import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect";
-import { onMount, onCleanup } from "solid-js";
+import { onSettled } from "solid-js";
 import {
 	DriveDetection,
 	DriveDetectionLive,
@@ -80,8 +80,8 @@ type AppRequirements =
  * Hook containing the core application logic, orchestrating various Effect services.
  */
 export const useAppLogic = () => {
-	let driveListenerFiber: Fiber.RuntimeFiber<any, any> | undefined;
-	let activeSyncFiber: Fiber.RuntimeFiber<any, any> | undefined;
+	let driveListenerFiber: Fiber.Fiber<unknown, unknown> | undefined;
+	let activeSyncFiber: Fiber.Fiber<unknown, unknown> | undefined;
 
 	/**
 	 * Runs an effect to completion using the AppLayer.
@@ -131,7 +131,7 @@ export const useAppLogic = () => {
 			const updated = markEpisodesOnDrive(state.macPodcasts, episodes);
 			actions.setMacPodcasts(updated);
 		}).pipe(
-			Effect.catchAll((err) => {
+			Effect.catch((err) => {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				actions.setErrorMsg(errorMessage);
 				actions.addDebugMessage(errorMessage, "error");
@@ -180,7 +180,7 @@ export const useAppLogic = () => {
 				}
 			}
 		}).pipe(
-			Effect.catchAll((err) => {
+			Effect.catch((err) => {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				actions.setErrorMsg(errorMessage);
 				actions.addDebugMessage(errorMessage, "error");
@@ -240,7 +240,7 @@ export const useAppLogic = () => {
 				}),
 			);
 		}).pipe(
-			Effect.catchAll((err) => {
+			Effect.catch((err) => {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				actions.addDebugMessage(`Drive listener error: ${errorMessage}`, "error");
 				return Effect.void;
@@ -263,7 +263,7 @@ export const useAppLogic = () => {
 			}
 			return settings;
 		}).pipe(
-			Effect.catchAll(() => {
+			Effect.catch(() => {
 				actions.addDebugMessage("Failed to load settings", "error");
 				return Effect.succeed({ theme: "Catppuccin", favoriteDrives: [] });
 			}),
@@ -283,7 +283,7 @@ export const useAppLogic = () => {
 				});
 				yield* logger.info(`Toggled favorite: ${driveId}`);
 			}).pipe(
-				Effect.catchAll(() => {
+				Effect.catch(() => {
 					actions.addDebugMessage("Failed to save favorites", "error");
 					return Effect.void;
 				}),
@@ -303,7 +303,7 @@ export const useAppLogic = () => {
 				actions.setLastSavedTheme(themeName);
 				yield* logger.info(`Saved theme: ${themeName}`);
 			}).pipe(
-				Effect.catchAll(() => {
+				Effect.catch(() => {
 					actions.addDebugMessage("Failed to save theme", "error");
 					return Effect.void;
 				}),
@@ -329,7 +329,7 @@ export const useAppLogic = () => {
 					actions.setMacPodcasts(episodes);
 				}
 			}).pipe(
-				Effect.catchAll((err) => {
+				Effect.catch((err) => {
 					const errorMessage = err instanceof Error ? err.message : String(err);
 					actions.setErrorMsg(errorMessage);
 					actions.addDebugMessage(errorMessage, "error");
@@ -354,7 +354,7 @@ export const useAppLogic = () => {
 				const episodes = yield* podcastService.loadMacPodcasts;
 				actions.setMacPodcasts(episodes);
 			}).pipe(
-				Effect.catchAll((err) => {
+				Effect.catch((err) => {
 					actions.setErrorMsg(err instanceof Error ? err.message : String(err));
 					return Effect.void;
 				}),
@@ -449,7 +449,7 @@ export const useAppLogic = () => {
 		run(
 			Effect.gen(function* () {
 				const logger = yield* Logger;
-				const fiber = yield* Effect.fork(syncProgram);
+				const fiber = yield* Effect.forkChild(syncProgram);
 				activeSyncFiber = fiber;
 
 				const exit = yield* Fiber.await(fiber);
@@ -464,7 +464,7 @@ export const useAppLogic = () => {
 					}
 				} else {
 					const cause = exit.cause;
-					if (Cause.isInterruptedOnly(cause)) {
+					if (Cause.hasInterruptsOnly(cause)) {
 						yield* logger.info("Sync cancelled by user");
 						actions.setErrorMsg("");
 					} else {
@@ -495,7 +495,7 @@ export const useAppLogic = () => {
 				// Delete the episode files
 				yield* Effect.forEach(
 					selected,
-					(ep) => fs.remove(ep.filePath).pipe(Effect.catchAll(() => Effect.void)),
+					(ep) => fs.remove(ep.filePath).pipe(Effect.catch(() => Effect.void)),
 					{ discard: true },
 				);
 
@@ -506,10 +506,10 @@ export const useAppLogic = () => {
 						Effect.gen(function* () {
 							const exists = yield* fs.exists(dir);
 							if (exists) {
-								yield* fs.cleanupSystemHiddenFiles(dir).pipe(Effect.catchAll(() => Effect.void));
+								yield* fs.cleanupSystemHiddenFiles(dir).pipe(Effect.catch(() => Effect.void));
 								const empty = yield* fs.isDirEmpty(dir);
 								if (empty) {
-									yield* fs.remove(dir).pipe(Effect.catchAll(() => Effect.void));
+									yield* fs.remove(dir).pipe(Effect.catch(() => Effect.void));
 								}
 							}
 						}),
@@ -534,17 +534,16 @@ export const useAppLogic = () => {
 		}
 	};
 
-	onMount(() => {
+	onSettled(() => {
 		initialize();
-	});
-
-	onCleanup(() => {
-		if (driveListenerFiber) {
-			Effect.runFork(Fiber.interrupt(driveListenerFiber));
-		}
-		if (activeSyncFiber) {
-			Effect.runFork(Fiber.interrupt(activeSyncFiber));
-		}
+		return () => {
+			if (driveListenerFiber) {
+				Effect.runFork(Fiber.interrupt(driveListenerFiber));
+			}
+			if (activeSyncFiber) {
+				Effect.runFork(Fiber.interrupt(activeSyncFiber));
+			}
+		};
 	});
 
 	return {

@@ -8,12 +8,21 @@
  * - Progress streaming
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import { EpisodeMatcherLive } from "@/services/effects/EpisodeMatcher";
-import { createFileSystemTest } from "@/services/effects/FileSystem";
+import { createFileSystemTest, FileSystemLive } from "@/services/effects/FileSystem";
+import { LoggerLive } from "@/services/effects/Logger";
 import { createMetadataEditorTest } from "@/services/effects/MetadataEditor";
-import { createSyncEngineTest, formatDestPath, SyncEngine } from "@/services/effects/SyncEngine";
+import {
+	createSyncEngineTest,
+	formatDestPath,
+	SyncEngine,
+	SyncEngineLive,
+} from "@/services/effects/SyncEngine";
 import type { Podcast } from "@/types/podcast";
 import { sanitizeFilename } from "@/utils/formatting";
 
@@ -398,6 +407,29 @@ describe("SyncEngine", () => {
 	});
 
 	describe("copyFileWithProgress", () => {
+		it("copies files using live file handles", async () => {
+			const directory = await mkdtemp(join(tmpdir(), "podapple-sync-"));
+			const sourcePath = join(directory, "source.mp3");
+			const destinationPath = join(directory, "destination.mp3");
+			const content = new Uint8Array([1, 2, 3, 4, 5]);
+
+			try {
+				await Bun.write(sourcePath, content);
+
+				const program = Effect.gen(function* () {
+					const engine = yield* SyncEngine;
+					yield* engine.copyFileWithProgress(sourcePath, destinationPath, () => {});
+				});
+
+				const layer = Layer.mergeAll(SyncEngineLive, FileSystemLive).pipe(Layer.provide(LoggerLive));
+				await Effect.runPromise(Effect.provide(program, layer));
+
+				expect(await Bun.file(destinationPath).bytes()).toEqual(content);
+			} finally {
+				await rm(directory, { recursive: true, force: true });
+			}
+		});
+
 		it("copies file and reports progress", async () => {
 			const content = new Uint8Array([1, 2, 3, 4, 5]);
 			const mockFiles = new Map<string, Uint8Array>([["/src/file.mp3", content]]);
@@ -438,7 +470,7 @@ describe("SyncEngine", () => {
 			});
 
 			const result = await Effect.runPromise(
-				Effect.either(
+				Effect.result(
 					Effect.provide(
 						program,
 						Layer.mergeAll(createSyncEngineTest(), EpisodeMatcherLive, createFileSystemTest()),
@@ -446,7 +478,7 @@ describe("SyncEngine", () => {
 				),
 			);
 
-			expect(result._tag).toBe("Left");
+			expect(result._tag).toBe("Failure");
 		});
 	});
 

@@ -22,7 +22,7 @@ export class DatabaseNotFoundError extends Data.TaggedError("DatabaseNotFoundErr
 /**
  * Podcast Service Tag
  */
-export class PodcastService extends Context.Tag("PodcastService")<
+export class PodcastService extends Context.Service<
 	PodcastService,
 	{
 		/** Checks if the Apple Podcasts database is available */
@@ -32,7 +32,7 @@ export class PodcastService extends Context.Tag("PodcastService")<
 		/** Returns the absolute path to the MTLibrary.sqlite database */
 		readonly getDatabasePath: () => string;
 	}
->() {}
+>()("PodcastService") {}
 
 /**
  * Live implementation of PodcastService using a background worker for SQLite access.
@@ -71,10 +71,10 @@ export const PodcastServiceLive = Layer.effect(
 						const workerUrl = new URL(workerPath, import.meta.url);
 						yield* logger.debug(`Spawning worker for database access: ${workerUrl}`);
 						return new Worker(workerUrl);
-					}).pipe(Effect.catchAll((err) => Effect.fail(new PodcastError({ cause: err })))),
+					}).pipe(Effect.catch((err) => Effect.fail(new PodcastError({ cause: err })))),
 					// Use: Perform the async work
 					(worker) =>
-						Effect.async<PodcastEpisode[], PodcastError>((resume) => {
+						Effect.callback<PodcastEpisode[], PodcastError>((resume) => {
 							worker.onmessage = (e) => {
 								if (e.data.type === "SUCCESS") {
 									const episodes = e.data.data as PodcastEpisode[];

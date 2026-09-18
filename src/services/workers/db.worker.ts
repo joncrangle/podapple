@@ -10,7 +10,7 @@ const parseFileUrl = (url: string) =>
 	Effect.try({
 		try: () => decodeURIComponent(new URL(url).pathname),
 		catch: () => new Error("Invalid URL"),
-	}).pipe(Effect.orElse(() => Effect.succeed(url.replace("file://", ""))));
+	}).pipe(Effect.orElseSucceed(() => url.replace("file://", "")));
 
 self.onmessage = (event: MessageEvent) => {
 	const { type, dbPath } = event.data;
