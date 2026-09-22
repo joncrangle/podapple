@@ -1,0 +1,577 @@
+diff --git a/node_modules/@opentui/solid/.bun-tag-25d873c820729c6e b/.bun-tag-25d873c820729c6e
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@opentui/solid/.bun-tag-30ebfe2ac5ae6ce4 b/.bun-tag-30ebfe2ac5ae6ce4
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@opentui/solid/.bun-tag-37814309257904d3 b/.bun-tag-37814309257904d3
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@opentui/solid/.bun-tag-85b331d416031a66 b/.bun-tag-85b331d416031a66
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@opentui/solid/.bun-tag-ca17d67b79a1755d b/.bun-tag-ca17d67b79a1755d
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@opentui/solid/.bun-tag-ea6c0dbad8574b0b b/.bun-tag-ea6c0dbad8574b0b
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/node_modules/@opentui/solid/.bun-tag-fd9507e5a5b36088 b/.bun-tag-fd9507e5a5b36088
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/index.bun.js b/index.bun.js
+index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a73e72539f 100644
+--- a/index.bun.js
++++ b/index.bun.js
+@@ -117,7 +117,7 @@ import {
+   engine,
+   Timeline
+ } from "@opentui/core";
+-import { createContext, createSignal, onCleanup, onMount, useContext } from "solid-js";
++import { createContext, createSignal, onSettled, useContext } from "solid-js";
+ var RendererContext = createContext();
+ var useRenderer = () => {
+   const renderer = useContext(RendererContext);
+@@ -128,11 +128,9 @@ var useRenderer = () => {
+ };
+ var onResize = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("resize", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("resize", callback);
++    return () => renderer.off("resize", callback);
+   });
+ };
+ var useTerminalDimensions = () => {
+@@ -147,73 +145,65 @@ var useTerminalDimensions = () => {
+ var useKeyboard = (callback, options) => {
+   const renderer = useRenderer();
+   const keyHandler = renderer.keyInput;
+-  onMount(() => {
++  onSettled(() => {
+     keyHandler.on("keypress", callback);
+     if (options?.release) {
+       keyHandler.on("keyrelease", callback);
+     }
+-  });
+-  onCleanup(() => {
+-    keyHandler.off("keypress", callback);
+-    if (options?.release) {
+-      keyHandler.off("keyrelease", callback);
+-    }
++    return () => {
++      keyHandler.off("keypress", callback);
++      if (options?.release) {
++        keyHandler.off("keyrelease", callback);
++      }
++    };
+   });
+ };
+ var usePaste = (callback) => {
+   const renderer = useRenderer();
+   const keyHandler = renderer.keyInput;
+-  onMount(() => {
++  onSettled(() => {
+     keyHandler.on("paste", callback);
+-  });
+-  onCleanup(() => {
+-    keyHandler.off("paste", callback);
++    return () => keyHandler.off("paste", callback);
+   });
+ };
+ var useKeyHandler = useKeyboard;
+ var onFocus = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("focus", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("focus", callback);
++    return () => renderer.off("focus", callback);
+   });
+ };
+ var onBlur = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("blur", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("blur", callback);
++    return () => renderer.off("blur", callback);
+   });
+ };
+ var useSelectionHandler = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("selection", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("selection", callback);
++    return () => renderer.off("selection", callback);
+   });
+ };
+ var useTimeline = (options = {}) => {
+   const timeline = new Timeline(options);
+-  onMount(() => {
++  onSettled(() => {
+     if (options.autoplay !== false) {
+       timeline.play();
+     }
+     engine.register(timeline);
+-  });
+-  onCleanup(() => {
+-    timeline.pause();
+-    engine.unregister(timeline);
++    return () => {
++      timeline.pause();
++      engine.unregister(timeline);
++    };
+   });
+   return timeline;
+ };
+ // src/elements/extras.ts
+-import { createEffect, createMemo as createMemo2, getOwner, onCleanup as onCleanup3, runWithOwner, splitProps, untrack as untrack2 } from "solid-js";
++import { createMemo as createMemo2, createRenderEffect as createRenderEffect2, getOwner, runWithOwner, untrack as untrack2 } from "solid-js";
+ 
+ // src/reconciler.ts
+ import {
+@@ -239,7 +229,47 @@ import { decodeHTMLStrict } from "entities";
+ import { onCleanup as onCleanup2, useContext as useContext2 } from "solid-js";
+ 
+ // src/renderer/universal.js
+-import { createRoot, createRenderEffect, createMemo, createComponent, untrack, mergeProps } from "solid-js";
++import { createRoot, createTrackedEffect, createMemo, createComponent, untrack } from "solid-js";
++
++// Solid 2 removed these convenience helpers from the public runtime. Keep the
++// renderer's legacy API surface while preserving reactive property access.
++function mergeProps(...sources) {
++  const result = {};
++  for (const source of sources) {
++    if (!source) continue;
++    for (const key of Reflect.ownKeys(source)) {
++      Object.defineProperty(result, key, {
++        configurable: true,
++        enumerable: true,
++        get: () => source[key]
++      });
++    }
++  }
++  return result;
++}
++function splitProps(props, keys) {
++  const selected = {};
++  const rest = {};
++  const selectedKeys = new Set(keys);
++  for (const key of Reflect.ownKeys(props)) {
++    const target = selectedKeys.has(key) ? selected : rest;
++    Object.defineProperty(target, key, {
++      configurable: true,
++      enumerable: true,
++      get: () => props[key]
++    });
++  }
++  return [selected, rest];
++}
++// OpenTUI's bundled reconciler still calls this with Solid 1's
++// `(compute, previousValue)` signature. Keep that adapter isolated here until
++// OpenTUI ships a Solid 2-native renderer.
++function createRenderEffect(compute, initial) {
++  let previous = initial;
++  return createTrackedEffect(() => {
++    previous = compute(previous);
++  });
++}
+ var memo = (fn) => createMemo(() => fn());
+ function createRenderer({
+   createElement,
+@@ -499,10 +529,9 @@ function createRenderer({
+ }
+ 
+ // src/renderer/index.ts
+-import { mergeProps as mergeProps2 } from "solid-js";
+ function createRenderer2(options) {
+   const renderer = createRenderer(options);
+-  renderer.mergeProps = mergeProps2;
++  renderer.mergeProps = mergeProps;
+   return renderer;
+ }
+ 
+@@ -843,21 +872,25 @@ function Portal(props) {
+   const renderer = useRenderer();
+   const marker = createSlotNode(), mount = () => props.mount || renderer.root, owner = getOwner();
+   let content;
+-  createEffect(() => {
+-    content || (content = runWithOwner(owner, () => createMemo2(() => props.children)));
+-    const el = mount();
+-    const container = createElement("box"), renderRoot = container;
+-    Object.defineProperty(container, "_$host", {
+-      get() {
+-        return marker.parent;
+-      },
+-      configurable: true
+-    });
+-    insert(renderRoot, content);
+-    el.add(container);
+-    props.ref && props.ref(container);
+-    onCleanup3(() => el.remove(container));
+-  }, undefined, { render: true });
++  createRenderEffect2(
++    () => props.children,
++    () => {
++      content || (content = runWithOwner(owner, () => createMemo2(() => props.children)));
++      const el = mount();
++      const container = createElement("box"), renderRoot = container;
++      Object.defineProperty(container, "_$host", {
++        get() {
++          return marker.parent;
++        },
++        configurable: true
++      });
++      insert(renderRoot, content);
++      el.add(container);
++      props.ref && props.ref(container);
++      return () => el.remove(container);
++    },
++    { render: true }
++  );
+   return marker;
+ }
+ function createDynamic(component, props) {
+@@ -1303,7 +1336,7 @@ function createScrollbackWriter(node, options = {}) {
+       dispose?.();
+     };
+     try {
+-      dispose = _render(() => createComponent2(RendererContext.Provider, {
++      dispose = _render(() => createComponent2(RendererContext, {
+         get value() {
+           return snapshotRenderer.renderer;
+         },
+@@ -1344,7 +1377,7 @@ var TimeToFirstDraw = (props) => {
+ };
+ // src/plugins/slot.tsx
+ import { createSlotRegistry } from "@opentui/core";
+-import { children, createMemo as createMemo3, createSignal as createSignal3, ErrorBoundary, For, onCleanup as onCleanup4, splitProps as splitProps2 } from "solid-js";
++import { children, createMemo as createMemo3, createSignal as createSignal3, Errored, For, onCleanup as onCleanup4 } from "solid-js";
+ var EMPTY_ENTRY_IDS = [];
+ function createSolidSlotRegistry(renderer, context, options = {}) {
+   return createSlotRegistry(renderer, "solid:slot-registry", context, options);
+@@ -1360,7 +1393,7 @@ function createSlot(registry, options = {}) {
+   };
+ }
+ function Slot(props) {
+-  const [local, slotProps] = splitProps2(props, ["registry", "name", "mode", "children", "pluginFailurePlaceholder"]);
++  const [local, slotProps] = splitProps(props, ["registry", "name", "mode", "children", "pluginFailurePlaceholder"]);
+   const registry = () => local.registry;
+   const pluginFailurePlaceholder = () => local.pluginFailurePlaceholder;
+   const [version, setVersion] = createSignal3(0);
+@@ -1446,14 +1479,14 @@ function Slot(props) {
+     if (!hasInitialOutput) {
+       return resolveFallback(fallbackOnError);
+     }
+-    return createComponent2(ErrorBoundary, {
++    return createComponent2(Errored, {
+       fallback: (error) => {
+         const failure = registry().reportPluginError({
+           pluginId: entry.id,
+           slot: slotName(),
+           phase: "render",
+           source: "solid",
+-          error
++          error: error()
+         });
+         return renderPluginFailurePlaceholder(failure, fallbackOnError);
+       },
+@@ -1540,7 +1573,7 @@ var mountSolidRoot = (renderer, node) => {
+     originalDestroy();
+   };
+   try {
+-    dispose = _render(() => createComponent2(RendererContext.Provider, {
++    dispose = _render(() => createComponent2(RendererContext, {
+       get value() {
+         return renderer;
+       },
+diff --git a/index.js b/index.js
+index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d9f870a58 100644
+--- a/index.js
++++ b/index.js
+@@ -100,7 +100,7 @@ function getComponentCatalogue() {
+ }
+ // src/elements/hooks.ts
+ import { engine, Timeline } from "@opentui/core";
+-import { createContext, createSignal, onCleanup, onMount, useContext } from "solid-js/dist/solid.js";
++import { createContext, createSignal, onSettled, useContext } from "solid-js/dist/solid.js";
+ var RendererContext = createContext();
+ var useRenderer = () => {
+   const renderer = useContext(RendererContext);
+@@ -111,11 +111,9 @@ var useRenderer = () => {
+ };
+ var onResize = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("resize", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("resize", callback);
++    return () => renderer.off("resize", callback);
+   });
+ };
+ var useTerminalDimensions = () => {
+@@ -136,73 +134,65 @@ var useTerminalDimensions = () => {
+ var useKeyboard = (callback, options) => {
+   const renderer = useRenderer();
+   const keyHandler = renderer.keyInput;
+-  onMount(() => {
++  onSettled(() => {
+     keyHandler.on("keypress", callback);
+     if (options?.release) {
+       keyHandler.on("keyrelease", callback);
+     }
+-  });
+-  onCleanup(() => {
+-    keyHandler.off("keypress", callback);
+-    if (options?.release) {
+-      keyHandler.off("keyrelease", callback);
+-    }
++    return () => {
++      keyHandler.off("keypress", callback);
++      if (options?.release) {
++        keyHandler.off("keyrelease", callback);
++      }
++    };
+   });
+ };
+ var usePaste = (callback) => {
+   const renderer = useRenderer();
+   const keyHandler = renderer.keyInput;
+-  onMount(() => {
++  onSettled(() => {
+     keyHandler.on("paste", callback);
+-  });
+-  onCleanup(() => {
+-    keyHandler.off("paste", callback);
++    return () => keyHandler.off("paste", callback);
+   });
+ };
+ var useKeyHandler = useKeyboard;
+ var onFocus = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("focus", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("focus", callback);
++    return () => renderer.off("focus", callback);
+   });
+ };
+ var onBlur = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("blur", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("blur", callback);
++    return () => renderer.off("blur", callback);
+   });
+ };
+ var useSelectionHandler = (callback) => {
+   const renderer = useRenderer();
+-  onMount(() => {
++  onSettled(() => {
+     renderer.on("selection", callback);
+-  });
+-  onCleanup(() => {
+-    renderer.off("selection", callback);
++    return () => renderer.off("selection", callback);
+   });
+ };
+ var useTimeline = (options = {}) => {
+   const timeline = new Timeline(options);
+-  onMount(() => {
++  onSettled(() => {
+     if (options.autoplay !== false) {
+       timeline.play();
+     }
+     engine.register(timeline);
+-  });
+-  onCleanup(() => {
+-    timeline.pause();
+-    engine.unregister(timeline);
++    return () => {
++      timeline.pause();
++      engine.unregister(timeline);
++    };
+   });
+   return timeline;
+ };
+ // src/elements/extras.ts
+-import { createEffect, createMemo as createMemo2, getOwner, onCleanup as onCleanup3, runWithOwner, splitProps, untrack as untrack2 } from "solid-js/dist/solid.js";
++import { createMemo as createMemo2, createRenderEffect as createRenderEffect2, getOwner, runWithOwner, untrack as untrack2 } from "solid-js/dist/solid.js";
+ 
+ // src/reconciler.ts
+ import { BaseRenderable, createTextAttributes, ImageRenderable as ImageRenderable2, InputRenderable as InputRenderable2, InputRenderableEvents, isTextNodeRenderable, isEditBufferRenderable, parseColor, Renderable, RootTextNodeRenderable, ScrollBoxRenderable as ScrollBoxRenderable2, SelectRenderable as SelectRenderable2, SelectRenderableEvents, TabSelectRenderable as TabSelectRenderable2, TabSelectRenderableEvents, TextNodeRenderable as TextNodeRenderable2, TextRenderable as TextRenderable2 } from "@opentui/core";
+@@ -210,7 +200,47 @@ import { decodeHTMLStrict } from "entities";
+ import { onCleanup as onCleanup2, useContext as useContext2 } from "solid-js/dist/solid.js";
+ 
+ // src/renderer/universal.js
+-import { createRoot, createRenderEffect, createMemo, createComponent, untrack, mergeProps } from "solid-js/dist/solid.js";
++import { createRoot, createTrackedEffect, createMemo, createComponent, untrack } from "solid-js/dist/solid.js";
++
++// Solid 2 removed these convenience helpers from the public runtime. Keep the
++// renderer's legacy API surface while preserving reactive property access.
++function mergeProps(...sources) {
++  const result = {};
++  for (const source of sources) {
++    if (!source) continue;
++    for (const key of Reflect.ownKeys(source)) {
++      Object.defineProperty(result, key, {
++        configurable: true,
++        enumerable: true,
++        get: () => source[key]
++      });
++    }
++  }
++  return result;
++}
++function splitProps(props, keys) {
++  const selected = {};
++  const rest = {};
++  const selectedKeys = new Set(keys);
++  for (const key of Reflect.ownKeys(props)) {
++    const target = selectedKeys.has(key) ? selected : rest;
++    Object.defineProperty(target, key, {
++      configurable: true,
++      enumerable: true,
++      get: () => props[key]
++    });
++  }
++  return [selected, rest];
++}
++// OpenTUI's bundled reconciler still calls this with Solid 1's
++// `(compute, previousValue)` signature. Keep that adapter isolated here until
++// OpenTUI ships a Solid 2-native renderer.
++function createRenderEffect(compute, initial) {
++  let previous = initial;
++  return createTrackedEffect(() => {
++    previous = compute(previous);
++  });
++}
+ var memo = (fn) => createMemo(() => fn());
+ function createRenderer({
+   createElement,
+@@ -470,10 +500,9 @@ function createRenderer({
+ }
+ 
+ // src/renderer/index.ts
+-import { mergeProps as mergeProps2 } from "solid-js/dist/solid.js";
+ function createRenderer2(options) {
+   const renderer = createRenderer(options);
+-  renderer.mergeProps = mergeProps2;
++  renderer.mergeProps = mergeProps;
+   return renderer;
+ }
+ 
+@@ -820,23 +849,25 @@ function Portal(props) {
+   const renderer = useRenderer();
+   const marker = createSlotNode(), mount = () => props.mount || renderer.root, owner = getOwner();
+   let content;
+-  createEffect(() => {
+-    content || (content = runWithOwner(owner, () => createMemo2(() => props.children)));
+-    const el = mount();
+-    const container = createElement("box"), renderRoot = container;
+-    Object.defineProperty(container, "_$host", {
+-      get() {
+-        return marker.parent;
+-      },
+-      configurable: true
+-    });
+-    insert(renderRoot, content);
+-    el.add(container);
+-    props.ref && props.ref(container);
+-    onCleanup3(() => el.remove(container));
+-  }, undefined, {
+-    render: true
+-  });
++  createRenderEffect2(
++    () => props.children,
++    () => {
++      content || (content = runWithOwner(owner, () => createMemo2(() => props.children)));
++      const el = mount();
++      const container = createElement("box"), renderRoot = container;
++      Object.defineProperty(container, "_$host", {
++        get() {
++          return marker.parent;
++        },
++        configurable: true
++      });
++      insert(renderRoot, content);
++      el.add(container);
++      props.ref && props.ref(container);
++      return () => el.remove(container);
++    },
++    { render: true }
++  );
+   return marker;
+ }
+ function createDynamic(component, props) {
+@@ -1277,7 +1308,7 @@ function createScrollbackWriter(node, options = {}) {
+       dispose?.();
+     };
+     try {
+-      dispose = _render(() => createComponent2(RendererContext.Provider, {
++      dispose = _render(() => createComponent2(RendererContext, {
+         get value() {
+           return snapshotRenderer.renderer;
+         },
+@@ -1318,7 +1349,7 @@ var TimeToFirstDraw = (props) => {
+ };
+ // src/plugins/slot.tsx
+ import { createSlotRegistry } from "@opentui/core";
+-import { children, createMemo as createMemo3, createSignal as createSignal3, ErrorBoundary, For, onCleanup as onCleanup4, splitProps as splitProps2 } from "solid-js/dist/solid.js";
++import { children, createMemo as createMemo3, createSignal as createSignal3, Errored, For, onCleanup as onCleanup4 } from "solid-js/dist/solid.js";
+ var EMPTY_ENTRY_IDS = [];
+ function createSolidSlotRegistry(renderer, context, options = {}) {
+   return createSlotRegistry(renderer, "solid:slot-registry", context, options);
+@@ -1334,7 +1365,7 @@ function createSlot(registry, options = {}) {
+   };
+ }
+ function Slot(props) {
+-  const [local, slotProps] = splitProps2(props, ["registry", "name", "mode", "children", "pluginFailurePlaceholder"]);
++  const [local, slotProps] = splitProps(props, ["registry", "name", "mode", "children", "pluginFailurePlaceholder"]);
+   const registry = () => local.registry;
+   const pluginFailurePlaceholder = () => local.pluginFailurePlaceholder;
+   const [version, setVersion] = createSignal3(0);
+@@ -1420,14 +1451,14 @@ function Slot(props) {
+     if (!hasInitialOutput) {
+       return resolveFallback(fallbackOnError);
+     }
+-    return createComponent2(ErrorBoundary, {
++    return createComponent2(Errored, {
+       fallback: (error) => {
+         const failure = registry().reportPluginError({
+           pluginId: entry.id,
+           slot: slotName(),
+           phase: "render",
+           source: "solid",
+-          error
++          error: error()
+         });
+         return renderPluginFailurePlaceholder(failure, fallbackOnError);
+       },
+@@ -1514,7 +1545,7 @@ var mountSolidRoot = (renderer, node) => {
+     originalDestroy();
+   };
+   try {
+-    dispose = _render(() => createComponent2(RendererContext.Provider, {
++    dispose = _render(() => createComponent2(RendererContext, {
+       get value() {
+         return renderer;
+       },

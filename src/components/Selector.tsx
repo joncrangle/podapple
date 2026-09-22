@@ -54,7 +54,7 @@ export function Selector<T>(props: SelectorProps<T>) {
 		>
 			<box flexDirection='column' gap={1} flexGrow={props.height ? 1 : 0}>
 				<Show when={props.loading}>
-					<Spinner active={true} label={props.loadingText || "Loading..."} />
+					<Spinner label={props.loadingText || "Loading..."} />
 				</Show>
 
 				<Show when={!props.loading}>

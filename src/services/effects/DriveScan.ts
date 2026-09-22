@@ -12,7 +12,7 @@ export class DriveScanError extends Data.TaggedError("DriveScanError")<{
 /**
  * DriveScan Service Tag
  */
-export class DriveScan extends Context.Tag("DriveScan")<
+export class DriveScan extends Context.Service<
 	DriveScan,
 	{
 		/** Scans a drive for existing podcast files in the 'Podcasts' folder */
@@ -32,7 +32,7 @@ export class DriveScan extends Context.Tag("DriveScan")<
 			drivePath: string,
 		) => Effect.Effect<boolean, DriveScanError, FileSystem | Logger>;
 	}
->() {}
+>()("DriveScan") {}
 
 /**
  * Helper to parse podcast file info from path.
@@ -80,7 +80,7 @@ const getFilesRecursive = (
 		const fs = yield* FileSystem;
 		const logger = yield* Logger;
 		const entries = yield* fs.list(dir).pipe(
-			Effect.catchAll((err) =>
+			Effect.catch((err) =>
 				Effect.gen(function* () {
 					yield* logger.error(`Failed to list directory ${dir}`, err);
 					return [] as string[];
@@ -96,7 +96,7 @@ const getFilesRecursive = (
 					const relPath = baseRel ? join(baseRel, entry) : entry;
 					const isDir = yield* fs
 						.isDirectory(fullPath)
-						.pipe(Effect.catchAll(() => Effect.succeed(false)));
+						.pipe(Effect.catch(() => Effect.succeed(false)));
 
 					if (isDir) {
 						return yield* getFilesRecursive(fullPath, relPath);
@@ -206,7 +206,7 @@ export const DriveScanLive = Layer.succeed(
 				);
 
 				return Array.from(podcastsMap.values());
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
+			}).pipe(Effect.catch((err) => Effect.fail(new DriveScanError({ cause: err })))),
 
 		buildDriveIndex: (drivePath) =>
 			Effect.gen(function* () {
@@ -269,7 +269,7 @@ export const DriveScanLive = Layer.succeed(
 
 				yield* logger.info(`Drive index built with ${index.size} episodes`);
 				return index;
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
+			}).pipe(Effect.catch((err) => Effect.fail(new DriveScanError({ cause: err })))),
 
 		hasPodcastsFolder: (drivePath) =>
 			Effect.gen(function* () {
@@ -279,7 +279,7 @@ export const DriveScanLive = Layer.succeed(
 				const exists = yield* fs.exists(podcastsDir);
 				yield* logger.debug(`Checked folder existence at ${podcastsDir}: ${exists}`);
 				return exists;
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
+			}).pipe(Effect.catch((err) => Effect.fail(new DriveScanError({ cause: err })))),
 	}),
 );
 
