@@ -7,7 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer, Stream } from "effect";
+import { Cause, Effect, Layer, Result, Stream } from "effect";
 import {
 	createDriveDetectionTest,
 	DriveDetection,
@@ -88,13 +88,13 @@ describe("FileSystem Service", () => {
 			});
 
 			const result = await Effect.runPromise(
-				Effect.either(Effect.provide(program, createFileSystemTest())),
+				Effect.result(Effect.provide(program, createFileSystemTest())),
 			);
 
-			expect(result._tag).toBe("Left");
-			if (result._tag === "Left") {
-				expect(result.left).toBeInstanceOf(FileNotFoundError);
-				expect((result.left as FileNotFoundError).path).toBe("/missing.txt");
+			expect(result._tag).toBe("Failure");
+			if (result._tag === "Failure") {
+				expect(result.failure).toBeInstanceOf(FileNotFoundError);
+				expect((result.failure as FileNotFoundError).path).toBe("/missing.txt");
 			}
 		});
 	});
@@ -139,12 +139,12 @@ describe("FileSystem Service", () => {
 			});
 
 			const result = await Effect.runPromise(
-				Effect.either(Effect.provide(program, createFileSystemTest())),
+				Effect.result(Effect.provide(program, createFileSystemTest())),
 			);
 
-			expect(result._tag).toBe("Left");
-			if (result._tag === "Left") {
-				expect(result.left).toBeInstanceOf(FileSystemCopyError);
+			expect(result._tag).toBe("Failure");
+			if (result._tag === "Failure") {
+				expect(result.failure).toBeInstanceOf(FileSystemCopyError);
 			}
 		});
 	});
@@ -354,6 +354,7 @@ describe("SyncEngine Service", () => {
 				{
 					id: "ep-1",
 					title: "Episode 1",
+					author: "Host A",
 					duration: 3600,
 					published: new Date("2024-01-01"),
 					onDrive: false,
@@ -363,6 +364,7 @@ describe("SyncEngine Service", () => {
 				{
 					id: "ep-2",
 					title: "Episode 2",
+					author: "Host A",
 					duration: 1800,
 					published: new Date("2024-01-08"),
 					onDrive: true,
@@ -876,9 +878,10 @@ describe("DriveScan Service", () => {
 				const exit = yield* podcastService.loadMacPodcasts.pipe(Effect.exit);
 				expect(exit._tag).toBe("Failure");
 				if (exit._tag === "Failure") {
-					expect(exit.cause._tag).toBe("Fail");
-					if (exit.cause._tag === "Fail") {
-						expect(exit.cause.error).toBeInstanceOf(DatabaseNotFoundError);
+					const error = Cause.findError(exit.cause);
+					expect(Result.isSuccess(error)).toBe(true);
+					if (Result.isSuccess(error)) {
+						expect(error.success).toBeInstanceOf(DatabaseNotFoundError);
 					}
 				}
 			});

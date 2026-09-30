@@ -18,13 +18,13 @@ export interface PodcastMetadata {
 /**
  * MetadataEditor Service Tag
  */
-export class MetadataEditor extends Context.Tag("MetadataEditor")<
+export class MetadataEditor extends Context.Service<
 	MetadataEditor,
 	{
 		/** Writes ID3 tags to an MP3 file */
 		readonly write: (path: string, metadata: PodcastMetadata) => Effect.Effect<void, MetadataError>;
 	}
->() {}
+>()("MetadataEditor") {}
 
 /**
  * Live implementation of MetadataEditor using node-id3.

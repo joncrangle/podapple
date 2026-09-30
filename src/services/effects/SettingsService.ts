@@ -17,7 +17,7 @@ const SCHEMA_URL =
 /**
  * SettingsService Service Tag
  */
-export class SettingsService extends Context.Tag("SettingsService")<
+export class SettingsService extends Context.Service<
 	SettingsService,
 	{
 		/** Loads application settings from ~/.config/podapple/podapple.jsonc */
@@ -25,7 +25,7 @@ export class SettingsService extends Context.Tag("SettingsService")<
 		/** Saves application settings to ~/.config/podapple/podapple.jsonc */
 		readonly saveSettings: (settings: Partial<Settings>) => Effect.Effect<void, Error>;
 	}
->() {}
+>()("SettingsService") {}
 
 /**
  * Live implementation of SettingsService.
@@ -53,7 +53,7 @@ export const SettingsServiceLive = Layer.effect(
 						catch: (cause) => new Error(`Failed to parse settings: ${cause}`),
 					}),
 				),
-				Effect.catchAll(() => Effect.succeed(null)),
+				Effect.catch(() => Effect.succeed(null)),
 			);
 
 			if (result) {

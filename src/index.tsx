@@ -1,5 +1,5 @@
 import { render, useTerminalDimensions } from "@opentui/solid";
-import { createMemo, ErrorBoundary, Show } from "solid-js";
+import { createMemo, Errored, Show } from "solid-js";
 import { ConfirmPopup } from "@/components/ConfirmPopup";
 import { DebugPopup } from "@/components/DebugPopup";
 import { DriveSelector } from "@/components/DriveSelector";
@@ -8,9 +8,10 @@ import { Header } from "@/components/Header";
 import { ThemePicker } from "@/components/ThemePicker";
 import { TransferPopup } from "@/components/TransferPopup";
 import { useAppKeyboard } from "@/hooks/useAppKeyboard";
-import { useAppLogic } from "@/hooks/useAppLogic";
+import { describeError, useAppLogic } from "@/hooks/useAppLogic";
 import { actions, state } from "@/store";
 import { Colors } from "@/theme/colors";
+import { selectDrive } from "@/utils/driveSelection";
 import { getFooterShortcuts } from "@/utils/keyboard";
 import { DriveView } from "@/views/DriveView";
 import { PodcastView } from "@/views/PodcastView";
@@ -114,6 +115,12 @@ const App = () => {
 				</box>
 			</Show>
 
+			<Show when={state.successMsg}>
+				<box style={{ paddingLeft: 4 }}>
+					<text style={{ fg: Colors.text.success }}>{state.successMsg}</text>
+				</box>
+			</Show>
+
 			<box flexDirection='row' flexGrow={1}>
 				<PodcastView width={layout().macWidth} flexGrow={layout().macGrow} logic={logic} />
 				<DriveView width={layout().driveWidth} flexGrow={layout().driveGrow} logic={logic} />
@@ -128,9 +135,7 @@ const App = () => {
 					visible={true}
 					isScanning={state.isScanning}
 					onSelect={(drive) => {
-						actions.setCurrentDrive(drive);
-						logic.loadDrivePodcasts(drive);
-						actions.setAppView("normal");
+						selectDrive(drive, logic.loadDrivePodcasts);
 					}}
 					onClose={() => actions.setAppView("normal")}
 					onShortcutClick={handleShortcutClick}
@@ -141,6 +146,7 @@ const App = () => {
 				<TransferPopup
 					visible={true}
 					currentFile={state.transferProgress.currentFile}
+					lastFile={state.transferProgress.lastFile}
 					filesDone={state.transferProgress.filesDone}
 					totalFiles={state.transferProgress.totalFiles}
 					bytesTransferred={state.transferProgress.bytesTransferred}
@@ -177,26 +183,29 @@ const App = () => {
 const Root = () => {
 	const terminalDimensions = useTerminalDimensions();
 	return (
-		<ErrorBoundary
-			fallback={(err: Error) => (
-				<box
-					flexDirection='column'
-					padding={1}
-					height={terminalDimensions().height}
-					backgroundColor={Colors.background}
-				>
-					<text style={{ fg: Colors.text.error }}>Fatal Error Occurred:</text>
-					<box marginTop={1}>
-						<text>{err.message}</text>
+		<Errored
+			fallback={(err) => {
+				const error = err();
+				return (
+					<box
+						flexDirection='column'
+						padding={1}
+						height={terminalDimensions().height}
+						backgroundColor={Colors.background}
+					>
+						<text style={{ fg: Colors.text.error }}>Fatal Error Occurred:</text>
+						<box marginTop={1}>
+							<text>{describeError(error)}</text>
+						</box>
+						<box marginTop={1}>
+							<text>Press Ctrl+C to exit.</text>
+						</box>
 					</box>
-					<box marginTop={1}>
-						<text>Press Ctrl+C to exit.</text>
-					</box>
-				</box>
-			)}
+				);
+			}}
 		>
 			<App />
-		</ErrorBoundary>
+		</Errored>
 	);
 };
 

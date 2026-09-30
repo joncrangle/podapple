@@ -8,12 +8,21 @@
  * - Progress streaming
  */
 
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import { EpisodeMatcherLive } from "@/services/effects/EpisodeMatcher";
-import { createFileSystemTest } from "@/services/effects/FileSystem";
+import { createFileSystemTest, FileSystemLive } from "@/services/effects/FileSystem";
+import { LoggerLive } from "@/services/effects/Logger";
 import { createMetadataEditorTest } from "@/services/effects/MetadataEditor";
-import { createSyncEngineTest, formatDestPath, SyncEngine } from "@/services/effects/SyncEngine";
+import {
+	createSyncEngineTest,
+	formatDestPath,
+	SyncEngine,
+	SyncEngineLive,
+} from "@/services/effects/SyncEngine";
 import type { Podcast } from "@/types/podcast";
 import { sanitizeFilename } from "@/utils/formatting";
 
@@ -29,6 +38,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-1",
 					title: "Episode 1: Getting Started",
+					author: "Host A",
 					duration: 3600,
 					published: new Date("2024-01-15"),
 					onDrive: false,
@@ -38,6 +48,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-2",
 					title: "Episode 2: Deep Dive",
+					author: "Host A",
 					duration: 1800,
 					published: new Date("2024-01-22"),
 					onDrive: true, // Already synced - should be skipped
@@ -47,6 +58,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-3",
 					title: "Episode 3: Q&A Session",
+					author: "Host A",
 					duration: 2400,
 					published: new Date("2024-01-29"),
 					onDrive: false,
@@ -64,6 +76,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-4",
 					title: "The Universe Explained",
+					author: "Host B",
 					duration: 4200,
 					published: new Date("2024-02-01"),
 					onDrive: false,
@@ -359,6 +372,7 @@ describe("SyncEngine", () => {
 							{
 								id: "e1",
 								title: "Ep",
+								author: "A",
 								duration: 100,
 								published: new Date("2024-01-01"),
 								onDrive: false,
@@ -398,6 +412,31 @@ describe("SyncEngine", () => {
 	});
 
 	describe("copyFileWithProgress", () => {
+		it("copies files using live file handles", async () => {
+			const directory = await mkdtemp(join(tmpdir(), "podapple-sync-"));
+			const sourcePath = join(directory, "source.mp3");
+			const destinationPath = join(directory, "destination.mp3");
+			const content = new Uint8Array([1, 2, 3, 4, 5]);
+
+			try {
+				await Bun.write(sourcePath, content);
+
+				const program = Effect.gen(function* () {
+					const engine = yield* SyncEngine;
+					yield* engine.copyFileWithProgress(sourcePath, destinationPath, () => {});
+				});
+
+				const layer = Layer.mergeAll(SyncEngineLive, FileSystemLive).pipe(
+					Layer.provide(LoggerLive),
+				);
+				await Effect.runPromise(Effect.provide(program, layer));
+
+				expect(await Bun.file(destinationPath).bytes()).toEqual(content);
+			} finally {
+				await rm(directory, { recursive: true, force: true });
+			}
+		});
+
 		it("copies file and reports progress", async () => {
 			const content = new Uint8Array([1, 2, 3, 4, 5]);
 			const mockFiles = new Map<string, Uint8Array>([["/src/file.mp3", content]]);
@@ -438,7 +477,7 @@ describe("SyncEngine", () => {
 			});
 
 			const result = await Effect.runPromise(
-				Effect.either(
+				Effect.result(
 					Effect.provide(
 						program,
 						Layer.mergeAll(createSyncEngineTest(), EpisodeMatcherLive, createFileSystemTest()),
@@ -446,7 +485,7 @@ describe("SyncEngine", () => {
 				),
 			);
 
-			expect(result._tag).toBe("Left");
+			expect(result._tag).toBe("Failure");
 		});
 	});
 

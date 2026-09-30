@@ -55,7 +55,7 @@ export class RemoveError extends Data.TaggedError("RemoveError")<{
 /**
  * FileSystem Service Tag
  */
-export class FileSystem extends Context.Tag("FileSystem")<
+export class FileSystem extends Context.Service<
 	FileSystem,
 	{
 		/** Checks if a path exists on the filesystem */
@@ -99,7 +99,7 @@ export class FileSystem extends Context.Tag("FileSystem")<
 		/** Checks if a directory contains no visible files */
 		readonly isDirEmpty: (path: string) => Effect.Effect<boolean>;
 	}
->() {}
+>()("FileSystem") {}
 
 const isSystemHiddenFileImpl = (name: string): boolean => {
 	if (SYSTEM_HIDDEN_FILES.includes(name)) return true;
@@ -118,7 +118,7 @@ export const FileSystemLive = Layer.effect(
 					await stat(path);
 				}).pipe(
 					Effect.as(true),
-					Effect.catchAll(() => Effect.succeed(false)),
+					Effect.catch(() => Effect.succeed(false)),
 				),
 
 			readFile: (path) =>
@@ -205,7 +205,7 @@ export const FileSystemLive = Layer.effect(
 					const { stat } = await import("node:fs/promises");
 					const s = await stat(path);
 					return s.isDirectory();
-				}).pipe(Effect.catchAll(() => Effect.succeed(false))),
+				}).pipe(Effect.catch(() => Effect.succeed(false))),
 
 			glob: (pattern, cwd) =>
 				Effect.tryPromise({
@@ -235,7 +235,7 @@ export const FileSystemLive = Layer.effect(
 					const { stat } = await import("node:fs/promises");
 					const s = await stat(path);
 					return s.size;
-				}).pipe(Effect.catchAll(() => Effect.succeed(0))),
+				}).pipe(Effect.catch(() => Effect.succeed(0))),
 
 			ensureDir: (dirPath) =>
 				Effect.gen(function* () {
@@ -281,7 +281,7 @@ export const FileSystemLive = Layer.effect(
 								Effect.tapError((err) =>
 									logger.error(`Failed to remove hidden file: ${entry}`, err),
 								),
-								Effect.catchAll(() => Effect.void),
+								Effect.catch(() => Effect.void),
 							);
 						}
 					}
@@ -293,7 +293,7 @@ export const FileSystemLive = Layer.effect(
 					const entries = yield* Effect.tryPromise({
 						try: () => readdir(path),
 						catch: (cause) => new ReadDirError({ path, cause }),
-					}).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+					}).pipe(Effect.catch(() => Effect.succeed([] as string[])));
 					const visibleFiles = entries.filter((e) => !isSystemHiddenFileImpl(e));
 					return visibleFiles.length === 0;
 				}),

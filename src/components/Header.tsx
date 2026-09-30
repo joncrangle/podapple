@@ -19,7 +19,7 @@ export function Header(props: HeaderProps) {
 			flexDirection='row'
 			alignItems='center'
 			style={{
-				padding: isSmallHeight() ? 1 : 1,
+				padding: 1,
 				paddingTop: isSmallHeight() ? 0 : 1,
 				paddingBottom: isSmallHeight() ? 0 : 1,
 			}}

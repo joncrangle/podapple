@@ -6,6 +6,9 @@ export const APPLE_EPOCH_OFFSET = 978307200;
 
 const BYTES_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
+/** Fallback podcast author. Matches the DriveScan convention so ID3 artist is never blank. */
+export const UNKNOWN_AUTHOR = "Unknown";
+
 /**
  * Formats bytes into human-readable string
  * e.g., 1073741824 → "1.0 GB"
@@ -89,11 +92,12 @@ export function groupEpisodesByPodcast(episodes: PodcastEpisode[]): Podcast[] {
 	return Array.from(grouped.entries()).map(([showName, eps]) => ({
 		id: showName,
 		title: showName,
-		author: "",
+		author: eps.find((ep) => ep.author.trim().length > 0)?.author ?? UNKNOWN_AUTHOR,
 		episodeCount: eps.length,
 		episodes: eps.map((ep) => ({
 			id: ep.id,
 			title: ep.title,
+			author: ep.author,
 			duration: ep.duration,
 			published: ep.published,
 			onDrive: false,
@@ -188,6 +192,7 @@ export const mapPodcastsToEpisodes = (podcasts: Podcast[]): PodcastEpisode[] => 
 		p.episodes.map((ep) => ({
 			id: ep.id,
 			title: ep.title,
+			author: p.author.trim() || UNKNOWN_AUTHOR,
 			showName: p.title,
 			filePath: ep.filePath,
 			published: ep.published,
@@ -215,6 +220,7 @@ export function mapDriveEpisodes(
 		episodes.push({
 			id: info.path,
 			title: info.title,
+			author: UNKNOWN_AUTHOR,
 			showName,
 			filePath: info.path,
 			published: new Date(), // Not available from file scan

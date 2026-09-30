@@ -1,11 +1,5 @@
 import type { AppView } from "@/types/keyboard";
 
-const NAVIGATION_KEYS = new Set(["j", "k", "up", "down"]);
-
-export function isNavigationKey(key: string): boolean {
-	return NAVIGATION_KEYS.has(key.toLowerCase());
-}
-
 /**
  * Creates a condensed list of footer shortcuts for a given view.
  * Matches original podcasts-sync layout.
@@ -18,10 +12,7 @@ export function getFooterShortcuts(
 	const line2: Array<{ key: string; label: string }> = [];
 
 	switch (view) {
-		case "main":
 		case "normal":
-		case "podcasts":
-		case "episodes":
 			line1.push(
 				{ key: "↑/↓", label: "navigate" },
 				{ key: "tab", label: "switch list" },
@@ -37,9 +28,7 @@ export function getFooterShortcuts(
 			break;
 		case "confirm":
 		case "debug":
-		case "drives":
 		case "driveSelection":
-		case "sync":
 		case "syncing":
 		case "themeSelection":
 		case "transferring":

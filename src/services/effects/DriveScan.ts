@@ -4,6 +4,7 @@ import { EpisodeMatcher } from "@/services/effects/EpisodeMatcher";
 import { FileSystem } from "@/services/effects/FileSystem";
 import { Logger } from "@/services/effects/Logger";
 import type { Podcast } from "@/types/podcast";
+import { UNKNOWN_AUTHOR } from "@/utils/formatting";
 
 export class DriveScanError extends Data.TaggedError("DriveScanError")<{
 	readonly cause: unknown;
@@ -12,7 +13,7 @@ export class DriveScanError extends Data.TaggedError("DriveScanError")<{
 /**
  * DriveScan Service Tag
  */
-export class DriveScan extends Context.Tag("DriveScan")<
+export class DriveScan extends Context.Service<
 	DriveScan,
 	{
 		/** Scans a drive for existing podcast files in the 'Podcasts' folder */
@@ -32,7 +33,7 @@ export class DriveScan extends Context.Tag("DriveScan")<
 			drivePath: string,
 		) => Effect.Effect<boolean, DriveScanError, FileSystem | Logger>;
 	}
->() {}
+>()("DriveScan") {}
 
 /**
  * Helper to parse podcast file info from path.
@@ -80,7 +81,7 @@ const getFilesRecursive = (
 		const fs = yield* FileSystem;
 		const logger = yield* Logger;
 		const entries = yield* fs.list(dir).pipe(
-			Effect.catchAll((err) =>
+			Effect.catch((err) =>
 				Effect.gen(function* () {
 					yield* logger.error(`Failed to list directory ${dir}`, err);
 					return [] as string[];
@@ -96,7 +97,7 @@ const getFilesRecursive = (
 					const relPath = baseRel ? join(baseRel, entry) : entry;
 					const isDir = yield* fs
 						.isDirectory(fullPath)
-						.pipe(Effect.catchAll(() => Effect.succeed(false)));
+						.pipe(Effect.catch(() => Effect.succeed(false)));
 
 					if (isDir) {
 						return yield* getFilesRecursive(fullPath, relPath);
@@ -174,6 +175,8 @@ export const DriveScanLive = Layer.succeed(
 								episode: {
 									id: `${showName}-${title}`,
 									title: title.replace(/_/g, " "),
+									// Drive-derived episodes have no ZAUTHOR to read.
+									author: UNKNOWN_AUTHOR,
 									duration: 0,
 									published,
 									onDrive: true,
@@ -190,7 +193,7 @@ export const DriveScanLive = Layer.succeed(
 						podcastsMap.set(showName, {
 							id: showName,
 							title: showName.replace(/_/g, " "),
-							author: "Unknown",
+							author: UNKNOWN_AUTHOR,
 							episodeCount: 0,
 							episodes: [],
 						});
@@ -206,7 +209,7 @@ export const DriveScanLive = Layer.succeed(
 				);
 
 				return Array.from(podcastsMap.values());
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
+			}).pipe(Effect.catch((err) => Effect.fail(new DriveScanError({ cause: err })))),
 
 		buildDriveIndex: (drivePath) =>
 			Effect.gen(function* () {
@@ -269,7 +272,7 @@ export const DriveScanLive = Layer.succeed(
 
 				yield* logger.info(`Drive index built with ${index.size} episodes`);
 				return index;
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
+			}).pipe(Effect.catch((err) => Effect.fail(new DriveScanError({ cause: err })))),
 
 		hasPodcastsFolder: (drivePath) =>
 			Effect.gen(function* () {
@@ -279,7 +282,7 @@ export const DriveScanLive = Layer.succeed(
 				const exists = yield* fs.exists(podcastsDir);
 				yield* logger.debug(`Checked folder existence at ${podcastsDir}: ${exists}`);
 				return exists;
-			}).pipe(Effect.catchAll((err) => Effect.fail(new DriveScanError({ cause: err })))),
+			}).pipe(Effect.catch((err) => Effect.fail(new DriveScanError({ cause: err })))),
 	}),
 );
 
@@ -306,11 +309,12 @@ export const createDriveScanTest = (mockPodcasts: MockDrivePodcast[] = []) =>
 			const podcasts: Podcast[] = mockPodcasts.map((mock) => ({
 				id: mock.name,
 				title: mock.name,
-				author: "Unknown",
+				author: UNKNOWN_AUTHOR,
 				episodeCount: mock.episodes.length,
 				episodes: mock.episodes.map((ep) => ({
 					id: ep.id,
 					title: ep.title,
+					author: UNKNOWN_AUTHOR,
 					duration: 0,
 					published: new Date(),
 					onDrive: true,

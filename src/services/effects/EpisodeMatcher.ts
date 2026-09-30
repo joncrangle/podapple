@@ -4,7 +4,7 @@ import { sanitizeFilename } from "@/utils/formatting";
 /**
  * EpisodeMatcher Service Tag
  */
-export class EpisodeMatcher extends Context.Tag("EpisodeMatcher")<
+export class EpisodeMatcher extends Context.Service<
 	EpisodeMatcher,
 	{
 		/** Builds the expected relative path for an episode on the drive */
@@ -16,7 +16,7 @@ export class EpisodeMatcher extends Context.Tag("EpisodeMatcher")<
 			driveIndex: Map<string, { path: string; size?: number; duration?: number }>,
 		) => boolean;
 	}
->() {}
+>()("EpisodeMatcher") {}
 
 const buildExpectedDrivePathImpl = (showName: string, title: string): string => {
 	return `${sanitizeFilename(showName)}/${sanitizeFilename(title)}.mp3`;

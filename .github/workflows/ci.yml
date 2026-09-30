@@ -24,8 +24,10 @@ jobs:
           bun-version: latest
       - name: Install Dependencies
         run: bun install
-      - name: Lint & Format
+      - name: Lint
         run: bun run lint
+      - name: Format check
+        run: bunx oxfmt --check .
       - name: Type Check
         run: bun run tsc --noEmit
       - name: Run Tests

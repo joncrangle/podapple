@@ -1,7 +1,8 @@
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { actions, state } from "@/store";
-import { setTheme, Themes } from "@/theme/colors";
+import { previewThemeAt, setTheme, Themes } from "@/theme/colors";
 import { copyToClipboard } from "@/utils/clipboard";
+import { selectDrive } from "@/utils/driveSelection";
 import { quitApp } from "@/utils/terminal";
 import type { useAppLogic } from "./useAppLogic";
 
@@ -41,9 +42,13 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 			setTheme(state.lastSavedTheme);
 			actions.setAppView("normal");
 		} else if (key === "up" || key === "k") {
-			actions.setThemeMenuIndex((i) => Math.max(0, i - 1));
+			const index = Math.max(0, state.themeMenuIndex - 1);
+			actions.setThemeMenuIndex(index);
+			previewThemeAt(index);
 		} else if (key === "down" || key === "j") {
-			actions.setThemeMenuIndex((i) => Math.min(Themes.length - 1, i + 1));
+			const index = Math.min(Themes.length - 1, state.themeMenuIndex + 1);
+			actions.setThemeMenuIndex(index);
+			previewThemeAt(index);
 		} else if (key === "return" || key === "enter") {
 			const themeName = Themes[state.themeMenuIndex];
 			if (themeName) {
@@ -63,7 +68,10 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 	const handleNormalActions = (key: string, ctrl: boolean): void => {
 		if (ctrl && key === "t") {
 			const currentIndex = (Themes as string[]).indexOf(state.lastSavedTheme);
-			actions.setThemeMenuIndex(currentIndex >= 0 ? currentIndex : 0);
+			const index = currentIndex >= 0 ? currentIndex : 0;
+			actions.setThemeMenuIndex(index);
+			if (currentIndex >= 0) previewThemeAt(index);
+			else setTheme(state.lastSavedTheme);
 			actions.setAppView("themeSelection");
 			return;
 		}
@@ -189,9 +197,7 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 		} else if (key === "return" || key === "enter") {
 			const drive = state.drives[state.driveMenuIndex];
 			if (drive) {
-				actions.setCurrentDrive(drive);
-				actions.setAppView("normal");
-				logic.loadDrivePodcasts(drive);
+				selectDrive(drive, logic.loadDrivePodcasts);
 			}
 		} else if (ctrl && (key === "f" || key === "F")) {
 			const drive = state.drives[state.driveMenuIndex];

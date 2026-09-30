@@ -6,11 +6,14 @@ declare var self: Worker;
 
 const APPLE_EPOCH_OFFSET = 978307200;
 
+/** Fallback used when a podcast has no author recorded, so ID3 artist is never blank. */
+const UNKNOWN_AUTHOR = "Unknown";
+
 const parseFileUrl = (url: string) =>
 	Effect.try({
 		try: () => decodeURIComponent(new URL(url).pathname),
 		catch: () => new Error("Invalid URL"),
-	}).pipe(Effect.orElse(() => Effect.succeed(url.replace("file://", ""))));
+	}).pipe(Effect.orElseSucceed(() => url.replace("file://", "")));
 
 self.onmessage = (event: MessageEvent) => {
 	const { type, dbPath } = event.data;
@@ -26,6 +29,7 @@ self.onmessage = (event: MessageEvent) => {
               e.Z_PK as id,
               e.ZTITLE as title,
               p.ZTITLE as showName,
+              p.ZAUTHOR as author,
               e.ZASSETURL as assetUrl,
               e.ZPUBDATE as pubDate,
               e.ZDURATION as duration
@@ -53,6 +57,7 @@ self.onmessage = (event: MessageEvent) => {
 						id: String(row.id),
 						title: row.title ?? "Untitled",
 						showName: row.showName ?? "Unknown",
+						author: row.author?.trim() || UNKNOWN_AUTHOR,
 						filePath,
 						published: row.pubDate
 							? new Date((row.pubDate + APPLE_EPOCH_OFFSET) * 1000)

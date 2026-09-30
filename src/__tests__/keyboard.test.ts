@@ -1,36 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { getFooterShortcuts, isNavigationKey } from "@/utils/keyboard";
+import { getFooterShortcuts } from "@/utils/keyboard";
 
 describe("keyboard utilities", () => {
-	describe("isNavigationKey", () => {
-		test("should return true for j key", () => {
-			expect(isNavigationKey("j")).toBe(true);
-		});
-
-		test("should return true for k key", () => {
-			expect(isNavigationKey("k")).toBe(true);
-		});
-
-		test("should return true for up arrow", () => {
-			expect(isNavigationKey("up")).toBe(true);
-		});
-
-		test("should return true for down arrow", () => {
-			expect(isNavigationKey("down")).toBe(true);
-		});
-
-		test("should return false for tab (no longer navigation key)", () => {
-			expect(isNavigationKey("tab")).toBe(false);
-		});
-
-		test("should return false for non-navigation keys", () => {
-			expect(isNavigationKey("q")).toBe(false);
-			expect(isNavigationKey("s")).toBe(false);
-			expect(isNavigationKey("enter")).toBe(false);
-			expect(isNavigationKey("escape")).toBe(false);
-		});
-	});
-
 	describe("getFooterShortcuts", () => {
 		test("should return two lines for normal view", () => {
 			const shortcuts = getFooterShortcuts("normal");

@@ -5,7 +5,7 @@
  * Uses Bun.spawn for native process execution and parsing of 'diskutil activity'.
  */
 
-import { Context, Data, Effect, Either, Layer, Option, Ref, Stream } from "effect";
+import { Context, Data, Effect, Layer, Option, Ref, Result, Stream } from "effect";
 import type { Drive } from "@/types/drive";
 import {
 	getPlistBoolean,
@@ -27,7 +27,7 @@ export type DriveEvent =
 /**
  * DriveDetection Service Tag
  */
-export class DriveDetection extends Context.Tag("DriveDetection")<
+export class DriveDetection extends Context.Service<
 	DriveDetection,
 	{
 		/** Scans for available external/removable volumes */
@@ -39,7 +39,7 @@ export class DriveDetection extends Context.Tag("DriveDetection")<
 		/** A stream of drive appearance and disappearance events */
 		readonly driveEvents: Stream.Stream<DriveEvent, DriveDetectionError>;
 	}
->() {}
+>()("DriveDetection") {}
 
 const EXCLUDED_NAMES = new Set([
 	"Macintosh HD",
@@ -105,11 +105,11 @@ const runDiskutil = (args: string[]) =>
 				throw new Error(`diskutil exited with code ${exitCode}`);
 			}
 
-			const parsedEither = parsePlist(output);
-			if (Either.isLeft(parsedEither)) {
-				throw parsedEither.left;
+			const parsedResult = parsePlist(output);
+			if (Result.isFailure(parsedResult)) {
+				throw parsedResult.failure;
 			}
-			const parsed = parsedEither.right;
+			const parsed = parsedResult.success;
 			if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
 				return parsed as PlistDict;
 			}
@@ -118,9 +118,9 @@ const runDiskutil = (args: string[]) =>
 		catch: (cause) => new DriveDetectionError({ cause }),
 	});
 
-const getDriveDetails = (identifier: string, logger: Context.Tag.Service<Logger>) =>
-	Effect.gen(function* (_) {
-		const info = yield* _(runDiskutil(["info", identifier]));
+const getDriveDetails = (identifier: string, logger: Logger["Service"]) =>
+	Effect.gen(function* () {
+		const info = yield* runDiskutil(["info", identifier]);
 
 		const exclusionReason = getExclusionReason(info);
 		if (exclusionReason) {
@@ -166,7 +166,7 @@ const getDriveDetails = (identifier: string, logger: Context.Tag.Service<Logger>
 			totalSpace,
 			freeSpace: freeSpace ?? -1,
 		} as Drive);
-	}).pipe(Effect.catchAll(() => Effect.succeed(Option.none())));
+	}).pipe(Effect.catch(() => Effect.succeed(Option.none())));
 
 /**
  * Parses a line from `diskutil activity` output.
@@ -183,7 +183,11 @@ export function parseActivityLine(
 	const action = match[1];
 	const bsdName = match[2];
 
-	if (action === "DiskAppeared" || action === "VolumeMount" || action === "DiskDescriptionChanged") {
+	if (
+		action === "DiskAppeared" ||
+		action === "VolumeMount" ||
+		action === "DiskDescriptionChanged"
+	) {
 		return Option.some({ type: "Appeared", bsdName });
 	}
 	if (action === "DiskDisappeared" || action === "VolumeUnmount") {
@@ -219,12 +223,8 @@ export const DriveDetectionLive = Layer.effect(
 					catch: (cause) => new DriveDetectionError({ cause }),
 				});
 
-				const drives = yield* Effect.forEach(
-					volumeNames,
-					(name) => getDriveDetails(`/Volumes/${name}`, logger),
-					{
-						concurrency: "inherit",
-					},
+				const drives = yield* Effect.forEach(volumeNames, (name) =>
+					getDriveDetails(`/Volumes/${name}`, logger),
 				);
 
 				return drives.filter(Option.isSome).map((opt) => opt.value);
@@ -243,90 +243,98 @@ export const DriveDetectionLive = Layer.effect(
 				const lastCrashRef = yield* Ref.make(0);
 
 				const createProcessStream = () =>
-					Stream.acquireRelease(
-						Effect.gen(function* () {
-							// Spawn first so if it fails, scanningRef is never set
-							const process = Bun.spawn(["diskutil", "activity"], {
-								stdout: "pipe",
-								stderr: "ignore",
-							});
-							yield* Ref.set(scanningRef, true);
-							return process;
-						}),
-						(process) =>
-							Effect.gen(function* () {
-								process.kill();
-								yield* Ref.set(scanningRef, false);
-							}),
-					).pipe(
-						Stream.flatMap((process) =>
-							Stream.fromAsyncIterable(
-								(async function* () {
-									const reader = process.stdout.getReader();
-									const decoder = new TextDecoder();
-									let buffer = "";
+					Stream.scoped(
+						Stream.fromEffect(
+							Effect.acquireRelease(
+								Effect.gen(function* () {
+									// Spawn first so if it fails, scanningRef is never set
+									const process = Bun.spawn(["diskutil", "activity"], {
+										stdout: "pipe",
+										stderr: "ignore",
+									});
+									yield* Ref.set(scanningRef, true);
+									return process;
+								}),
+								(process) =>
+									Effect.gen(function* () {
+										process.kill();
+										yield* Ref.set(scanningRef, false);
+									}),
+							),
+						).pipe(
+							Stream.flatMap((process) =>
+								Stream.fromAsyncIterable(
+									(async function* () {
+										const reader = process.stdout.getReader();
+										const decoder = new TextDecoder();
+										let buffer = "";
 
-									try {
-										while (true) {
-											const { done, value } = await reader.read();
-											if (done) {
-												throw new Error("diskutil activity process exited unexpectedly");
+										try {
+											while (true) {
+												const { done, value } = await reader.read();
+												if (done) {
+													throw new Error("diskutil activity process exited unexpectedly");
+												}
+												buffer += decoder.decode(value, { stream: true });
+												const lines = buffer.split("\n");
+												buffer = lines.pop() ?? "";
+												for (const line of lines) {
+													if (line.trim()) yield line;
+												}
 											}
-											buffer += decoder.decode(value, { stream: true });
-											const lines = buffer.split("\n");
-											buffer = lines.pop() ?? "";
-											for (const line of lines) {
-												if (line.trim()) yield line;
-											}
+										} finally {
+											reader.releaseLock();
 										}
-									} finally {
-										reader.releaseLock();
+									})(),
+									(e) => new DriveDetectionError({ cause: e }),
+								),
+							),
+							Stream.map(parseActivityLine),
+							Stream.filterMap((o) =>
+								Option.isSome(o) ? Result.succeed(o.value) : Result.fail(undefined),
+							),
+							Stream.tap((event) => logger.debug(`diskutil event: ${event.type} ${event.bsdName}`)),
+							Stream.mapEffect((event) =>
+								Effect.gen(function* () {
+									const map = yield* Ref.get(driveIdMap);
+									const now = Date.now();
+
+									// Debounce events for the same drive to prevent rapid successive reads
+									const lastTime = (yield* Ref.get(lastEventTimeMap)).get(event.bsdName) ?? 0;
+									if (now - lastTime < 1000) {
+										return Option.none();
 									}
-								})(),
-								(e) => new DriveDetectionError({ cause: e }),
+									yield* Ref.update(lastEventTimeMap, (m) => new Map(m).set(event.bsdName, now));
+
+									if (event.type === "Appeared") {
+										const details = yield* getDriveDetails(event.bsdName, logger);
+										if (Option.isSome(details)) {
+											const drive = details.value;
+											yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
+											yield* logger.info(`Drive appeared/changed: ${drive.name} (${drive.id})`);
+											return Option.some({ _tag: "Appeared", drive } as DriveEvent);
+										}
+										return Option.none();
+									}
+
+									// Disappeared
+									const driveId = map.get(event.bsdName);
+									if (driveId) {
+										yield* Ref.update(driveIdMap, (m) => {
+											const newMap = new Map(m);
+											newMap.delete(event.bsdName);
+											return newMap;
+										});
+										yield* logger.info(`Drive disappeared: ${driveId}`);
+										return Option.some({ _tag: "Disappeared", driveId } as DriveEvent);
+									}
+									return Option.none();
+								}),
+							),
+							Stream.filterMap((o) =>
+								Option.isSome(o) ? Result.succeed(o.value) : Result.fail(undefined),
 							),
 						),
-						Stream.map(parseActivityLine),
-						Stream.filterMap((o) => o),
-						Stream.tap((event) => logger.debug(`diskutil event: ${event.type} ${event.bsdName}`)),
-						Stream.mapEffect((event) =>
-							Effect.gen(function* () {
-								const map = yield* Ref.get(driveIdMap);
-								const now = Date.now();
-
-								// Debounce events for the same drive to prevent rapid successive reads
-								const lastTime = (yield* Ref.get(lastEventTimeMap)).get(event.bsdName) ?? 0;
-								if (now - lastTime < 1000) {
-									return Option.none();
-								}
-								yield* Ref.update(lastEventTimeMap, (m) => new Map(m).set(event.bsdName, now));
-
-								if (event.type === "Appeared") {
-									const details = yield* getDriveDetails(event.bsdName, logger);
-									if (Option.isSome(details)) {
-										const drive = details.value;
-										yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
-										yield* logger.info(`Drive appeared/changed: ${drive.name} (${drive.id})`);
-										return Option.some({ _tag: "Appeared", drive } as DriveEvent);
-									}
-									return Option.none();
-								}
-
-								// Disappeared
-								const driveId = map.get(event.bsdName);
-								if (driveId) {
-									yield* Ref.update(driveIdMap, (m) => {
-										const newMap = new Map(m);
-										newMap.delete(event.bsdName);
-										return newMap;
-									});
-									yield* logger.info(`Drive disappeared: ${driveId}`);
-									return Option.some({ _tag: "Disappeared", driveId } as DriveEvent);
-								}
-								return Option.none();
-							}),
-						),
-						Stream.filterMap((o) => o),
 					);
 
 				// Retry with exponential backoff up to 5 times (resets if stable for 60s)
@@ -335,7 +343,7 @@ export const DriveDetectionLive = Layer.effect(
 					attempts: number,
 				): Stream.Stream<DriveEvent, DriveDetectionError> =>
 					stream.pipe(
-						Stream.catchAll((err) => {
+						Stream.catch((err) => {
 							const now = Date.now();
 							return Stream.fromEffect(
 								Effect.gen(function* () {
@@ -355,7 +363,7 @@ export const DriveDetectionLive = Layer.effect(
 									const oldMap = yield* Ref.get(driveIdMap);
 									// Re-scan to get fresh state
 									const freshDrives = yield* scanDrives().pipe(
-										Effect.catchAll(() => Effect.succeed([] as Drive[])),
+										Effect.catch(() => Effect.succeed([] as Drive[])),
 									);
 									const newMap = new Map<string, string>(freshDrives.map((d) => [d.bsdName, d.id]));
 									yield* Ref.set(driveIdMap, newMap);
