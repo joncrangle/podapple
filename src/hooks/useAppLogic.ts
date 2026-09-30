@@ -77,6 +77,18 @@ type AppRequirements =
 	| Logger;
 
 /**
+ * Builds the success message for a completed sync.
+ *
+ * Files are discarded when tagging fails, so the sync still succeeds but the
+ * drive may be missing files. That has to be visible in the message, or the
+ * user is told everything landed when it did not.
+ */
+export const syncSuccessMessage = (discarded: number): string =>
+	discarded > 0
+		? `Sync complete (${discarded} ${discarded === 1 ? "file" : "files"} discarded: tagging failed)`
+		: "Sync complete";
+
+/**
  * Hook containing the core application logic, orchestrating various Effect services.
  */
 export const useAppLogic = () => {
@@ -458,12 +470,7 @@ export const useAppLogic = () => {
 			actions.updateTransferProgress({ currentFile: "Finalizing drive..." });
 			yield* syncEngine.cleanup(drive.mountPoint);
 
-			const message =
-				discarded > 0
-					? `Sync complete (${discarded} ${discarded === 1 ? "file" : "files"} discarded: tagging failed)`
-					: "Sync complete";
-
-			return { success: true, message };
+			return { success: true, message: syncSuccessMessage(discarded) };
 		});
 
 		run(
