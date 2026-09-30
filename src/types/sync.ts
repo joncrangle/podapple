@@ -6,6 +6,8 @@ export interface SyncProgress {
 	totalFiles: number;
 	bytesTransferred: number;
 	totalBytes: number;
+	/** Files copied but discarded because tagging failed. Monotonic across a run. */
+	discarded: number;
 	startTime: number;
 	status: "idle" | "syncing" | "complete" | "error";
 	error?: string;

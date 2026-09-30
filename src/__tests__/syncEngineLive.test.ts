@@ -73,15 +73,17 @@ describe("SyncEngineLive.execute", () => {
 					new Map(),
 				);
 				const seen: number[] = [];
+				const discarded: number[] = [];
 				yield* Stream.runForEach(engine.execute(plan, join(directory, "out")), (prog) =>
 					Effect.sync(() => {
 						seen.push(prog.currentIndex);
+						discarded.push(prog.discarded);
 					}),
 				);
-				return seen;
+				return { seen, discarded };
 			});
 
-			const seen = await Effect.runPromise(
+			const { seen, discarded } = await Effect.runPromise(
 				Effect.provide(
 					program,
 					Layer.mergeAll(
@@ -98,6 +100,9 @@ describe("SyncEngineLive.execute", () => {
 			expect(seen.every((v) => v >= 1)).toBe(true);
 			// The first file in flight reports 1, not 0.
 			expect(seen[0]).toBe(1);
+			// Nothing was discarded: every file tagged cleanly. Compared against a
+			// same-length array of zeros so an empty run cannot pass vacuously.
+			expect(discarded).toEqual(seen.map(() => 0));
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}
@@ -147,12 +152,14 @@ describe("SyncEngineLive.execute", () => {
 				const engine = yield* SyncEngine;
 				const plan = yield* engine.createPlan(makePodcast(directory, 1), destDir, new Map());
 				const statuses: string[] = [];
+				const counts: number[] = [];
 				yield* Stream.runForEach(engine.execute(plan, destDir), (prog) =>
 					Effect.sync(() => {
 						statuses.push(prog.status);
+						counts.push(prog.discarded);
 					}),
 				);
-				return { statuses, destPath: plan.toCopy[0]?.destPath };
+				return { statuses, counts, destPath: plan.toCopy[0]?.destPath };
 			});
 
 			const result = await Effect.runPromise(
@@ -172,6 +179,52 @@ describe("SyncEngineLive.execute", () => {
 			// The half-tagged file must not linger on the drive.
 			expect(result.destPath).toBeDefined();
 			expect(await Bun.file(result.destPath as string).exists()).toBe(false);
+			// The discard is counted, so the success message can report it
+			// instead of claiming everything landed.
+			expect(result.counts[result.counts.length - 1]).toBe(1);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("counts one discard per file across a multi-file run", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "podapple-count-"));
+		const destDir = join(directory, "out");
+		try {
+			for (let i = 1; i <= 3; i++) {
+				await Bun.write(join(directory, `ep${i}.mp3`), new Uint8Array([1, 2, 3]));
+			}
+
+			const program = Effect.gen(function* () {
+				const engine = yield* SyncEngine;
+				const plan = yield* engine.createPlan(makePodcast(directory, 3), destDir, new Map());
+				const counts: number[] = [];
+				yield* Stream.runForEach(engine.execute(plan, destDir), (prog) =>
+					Effect.sync(() => {
+						counts.push(prog.discarded);
+					}),
+				);
+				return counts;
+			});
+
+			const counts = await Effect.runPromise(
+				Effect.provide(
+					program,
+					Layer.mergeAll(
+						SyncEngineLive,
+						EpisodeMatcherLive,
+						FileSystemLive,
+						failingMetadataEditor(),
+					).pipe(Layer.provide(LoggerLive)),
+				),
+			);
+
+			// Three files, three tag failures, three discards. This is what a
+			// once-per-run or double-counted implementation would get wrong.
+			expect(counts[counts.length - 1]).toBe(3);
+			// The count is monotonic, and never exceeds the number of files.
+			expect(counts.every((v, i) => (i === 0 ? v <= 1 : v >= counts[i - 1]!))).toBe(true);
+			expect(Math.max(...counts)).toBeLessThanOrEqual(3);
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

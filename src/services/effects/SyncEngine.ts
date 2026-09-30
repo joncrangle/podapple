@@ -227,6 +227,10 @@ export const SyncEngineLive = Layer.effect(
 						yield* logger.info(`Executing sync plan: ${plan.totalFiles} files to copy`);
 						const startTime = Date.now();
 						let bytesWritten = 0;
+						// Files copied but discarded because tagging failed. The sync still
+						// succeeds, but the count is surfaced so the user is not told
+						// "Sync complete" while files are quietly missing.
+						let discarded = 0;
 
 						return Stream.fromIterable(plan.toCopy).pipe(
 							Stream.zipWithIndex,
@@ -239,6 +243,7 @@ export const SyncEngineLive = Layer.effect(
 									totalFiles: plan.totalFiles,
 									bytesTransferred: bytesWritten,
 									totalBytes: plan.totalBytes,
+									discarded,
 									startTime,
 									status: "syncing",
 								});
@@ -254,7 +259,7 @@ export const SyncEngineLive = Layer.effect(
 								).pipe(
 									Stream.flatMap(() =>
 										copyFileStream(item.sourcePath, item.destPath).pipe(
-											Stream.map((bytes) => {
+											Stream.map((bytes): SyncProgress => {
 												bytesWritten += bytes;
 												return {
 													currentFile: item.episode.title,
@@ -262,26 +267,26 @@ export const SyncEngineLive = Layer.effect(
 													totalFiles: plan.totalFiles,
 													bytesTransferred: bytesWritten,
 													totalBytes: plan.totalBytes,
+													discarded,
 													startTime,
 													status: "syncing",
-												} as SyncProgress;
+												};
 											}),
 										),
 									),
 									Stream.concat(
 										Stream.fromEffect(
-											Effect.sync(() => {
+											Effect.sync((): SyncProgress => ({
 												// Emit a progress update to show we are tagging
-												return {
-													currentFile: `Tagging: ${item.episode.title}`,
-													currentIndex: i + 1,
-													totalFiles: plan.totalFiles,
-													bytesTransferred: bytesWritten,
-													totalBytes: plan.totalBytes,
-													startTime,
-													status: "syncing",
-												} as SyncProgress;
-											}),
+												currentFile: `Tagging: ${item.episode.title}`,
+												currentIndex: i + 1,
+												totalFiles: plan.totalFiles,
+												bytesTransferred: bytesWritten,
+												totalBytes: plan.totalBytes,
+												discarded,
+												startTime,
+												status: "syncing",
+											})),
 										),
 									),
 									Stream.concat(
@@ -312,7 +317,22 @@ export const SyncEngineLive = Layer.effect(
 															),
 														),
 														Effect.catch(() =>
-															fs.remove(item.destPath).pipe(Effect.catch(() => Effect.void)),
+															Effect.suspend(() => {
+																// Count it even if the unlink itself fails — either way
+																// the file did not make it onto the drive correctly.
+																discarded += 1;
+																return fs.remove(item.destPath).pipe(
+																	// createPlan skips any dest path that exists, so a
+																	// leftover here is never re-copied. Worth a line.
+																	Effect.tapError((err) =>
+																		logger.error(
+																			`Failed to discard untagged file: ${item.destPath}`,
+																			err,
+																		),
+																	),
+																	Effect.catch(() => Effect.void),
+																);
+															}),
 														),
 													);
 											}),
@@ -323,15 +343,21 @@ export const SyncEngineLive = Layer.effect(
 								return Stream.concat(initialProgress, copyFlow);
 							}),
 							Stream.concat(
-								Stream.succeed<SyncProgress>({
-									currentFile: "",
-									currentIndex: plan.totalFiles,
-									totalFiles: plan.totalFiles,
-									bytesTransferred: plan.totalBytes,
-									totalBytes: plan.totalBytes,
-									startTime,
-									status: "complete",
-								}),
+								// Deferred, not Stream.succeed: `discarded` is only final once every
+								// file has been tagged, and Stream.succeed builds its value when
+								// the stream is assembled rather than when it is consumed.
+								Stream.suspend((): Stream.Stream<SyncProgress> =>
+									Stream.succeed({
+										currentFile: "",
+										currentIndex: plan.totalFiles,
+										totalFiles: plan.totalFiles,
+										bytesTransferred: plan.totalBytes,
+										totalBytes: plan.totalBytes,
+										discarded,
+										startTime,
+										status: "complete",
+									}),
+								),
 							),
 							Stream.tap(() => logger.info("Sync plan execution complete")),
 						);
@@ -421,7 +447,7 @@ export const createSyncEngineTest = (mockFiles: Map<string, Uint8Array> = new Ma
 						totalBytes += sSize;
 					}
 				}
-				return { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes } as SyncPlan;
+				return { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes } satisfies SyncPlan;
 			}),
 		execute: (plan) => {
 			const startTime = Date.now();
@@ -433,19 +459,21 @@ export const createSyncEngineTest = (mockFiles: Map<string, Uint8Array> = new Ma
 					totalFiles: plan.totalFiles,
 					bytesTransferred: plan.toCopy.slice(0, i + 1).reduce((acc, i) => acc + i.size, 0),
 					totalBytes: plan.totalBytes,
+					discarded: 0,
 					startTime,
 					status: "syncing",
 				})),
 				Stream.concat(
-					Stream.succeed({
+					Stream.succeed<SyncProgress>({
 						currentFile: "",
 						currentIndex: plan.totalFiles,
 						totalFiles: plan.totalFiles,
 						bytesTransferred: plan.totalBytes,
 						totalBytes: plan.totalBytes,
+						discarded: 0,
 						startTime,
 						status: "complete",
-					} as SyncProgress),
+					}),
 				),
 			);
 		},

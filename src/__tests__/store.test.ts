@@ -54,20 +54,42 @@ describe("store actions", () => {
 		expect(state.transferProgress.totalFiles).toBe(10);
 	});
 
-	it("should keep successMsg separate from errorMsg", () => {
-		actions.setSuccessMsg("Sync complete");
-		expect(state.successMsg).toBe("Sync complete");
-		// A success message must not land in the error channel.
-		expect(state.errorMsg).toBe("");
-
+	it("should clear a pending error when a success is set", () => {
+		// Seed the error first, otherwise the assertion below cannot fail.
 		actions.setErrorMsg("something broke");
 		expect(state.errorMsg).toBe("something broke");
-		// Setting an error must not clobber the success message.
+
+		actions.setSuccessMsg("Sync complete");
 		expect(state.successMsg).toBe("Sync complete");
+		// A success message must not leave the error channel populated.
+		expect(state.errorMsg).toBe("");
 
 		actions.setSuccessMsg("");
+	});
+
+	it("should clear successMsg when an error is set", () => {
+		actions.setSuccessMsg("Sync complete");
+		// Seed the success first, otherwise the assertion below cannot fail.
+		expect(state.successMsg).toBe("Sync complete");
+
+		// Only one status line at a time: a fresh error must not render
+		// alongside a stale success.
+		actions.setErrorMsg("something broke");
+		expect(state.errorMsg).toBe("something broke");
 		expect(state.successMsg).toBe("");
+
 		actions.setErrorMsg("");
+	});
+
+	it("should clear errorMsg when a success is set", () => {
+		actions.setErrorMsg("something broke");
+		expect(state.errorMsg).toBe("something broke");
+
+		actions.setSuccessMsg("Sync complete");
+		expect(state.successMsg).toBe("Sync complete");
+		expect(state.errorMsg).toBe("");
+
+		actions.setSuccessMsg("");
 	});
 
 	it("should add debug messages", () => {

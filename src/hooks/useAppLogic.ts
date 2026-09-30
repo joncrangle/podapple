@@ -116,7 +116,9 @@ export const useAppLogic = () => {
 	/**
 	 * Loads podcasts from a drive using the DriveScan service.
 	 */
-	const loadDrivePodcastsEffect = (drive: Drive) =>
+	const loadDrivePodcastsEffect = (
+		drive: Drive,
+	): Effect.Effect<boolean, never, FileSystem | EpisodeMatcher | DriveScan | Logger> =>
 		Effect.gen(function* () {
 			const logger = yield* Logger;
 			actions.setLoadingDrive(true);
@@ -130,13 +132,17 @@ export const useAppLogic = () => {
 			// Mark Mac podcasts that are on the drive
 			const updated = markEpisodesOnDrive(state.macPodcasts, episodes);
 			actions.setMacPodcasts(updated);
+			return true;
 		}).pipe(
+			// Yields false when the rescan failed, so a caller that is about to report
+			// success does not overwrite the error set here. The two status fields are
+			// mutually exclusive, so a later setSuccessMsg would clear it.
 			Effect.catch((err) => {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				actions.setErrorMsg(errorMessage);
 				actions.addDebugMessage(errorMessage, "error");
 				actions.setDrivePodcasts([]);
-				return Effect.void;
+				return Effect.succeed(false);
 			}),
 			Effect.onExit(() => Effect.sync(() => actions.setLoadingDrive(false))),
 		);
@@ -347,7 +353,6 @@ export const useAppLogic = () => {
 		actions.setLoadingMac(true);
 		actions.setLoadingDrive(true);
 		actions.setErrorMsg("");
-		actions.setSuccessMsg("");
 
 		run(
 			Effect.gen(function* () {
@@ -423,8 +428,15 @@ export const useAppLogic = () => {
 
 			const stream = syncEngine.execute(plan, drive.mountPoint);
 
+			// Files copied but discarded because tagging failed. The sync still
+			// succeeds, so the count rides along in the success message rather
+			// than failing the run.
+			let discarded = 0;
+
 			yield* Stream.runForEach(stream, (progress) =>
 				Effect.sync(() => {
+					discarded = progress.discarded;
+
 					actions.updateTransferProgress({
 						currentFile: progress.currentFile,
 						filesDone: progress.status === "complete" ? progress.totalFiles : progress.currentIndex,
@@ -446,7 +458,12 @@ export const useAppLogic = () => {
 			actions.updateTransferProgress({ currentFile: "Finalizing drive..." });
 			yield* syncEngine.cleanup(drive.mountPoint);
 
-			return { success: true, message: "Sync complete" };
+			const message =
+				discarded > 0
+					? `Sync complete (${discarded} ${discarded === 1 ? "file" : "files"} discarded: tagging failed)`
+					: "Sync complete";
+
+			return { success: true, message };
 		});
 
 		run(
@@ -460,9 +477,13 @@ export const useAppLogic = () => {
 
 				if (Exit.isSuccess(exit)) {
 					if (exit.value.success) {
-						yield* loadDrivePodcastsEffect(drive);
+						const rescanOk = yield* loadDrivePodcastsEffect(drive);
 						actions.setMacPodcasts((prev) => prev.map((ep) => ({ ...ep, selected: false })));
-						actions.setSuccessMsg(exit.value.message);
+						// The rescan sets its own error if it failed; setting success here
+						// would clear it and claim a clean outcome that did not happen.
+						if (rescanOk) {
+							actions.setSuccessMsg(exit.value.message);
+						}
 					} else {
 						actions.setErrorMsg(exit.value.message);
 					}
@@ -471,7 +492,6 @@ export const useAppLogic = () => {
 					if (Cause.hasInterruptsOnly(cause)) {
 						yield* logger.info("Sync cancelled by user");
 						actions.setErrorMsg("");
-						actions.setSuccessMsg("");
 					} else {
 						const err = cause.toString();
 						yield* logger.error("Sync failed", cause);

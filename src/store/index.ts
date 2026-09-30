@@ -149,13 +149,18 @@ export const actions = {
 			}
 			Object.assign(draft.transferProgress, progress);
 		}),
+	// The two message fields are mutually exclusive: one status line at a time.
+	// Enforced here rather than at each call site so a stale success cannot sit
+	// next to a fresh error (and vice versa) whichever setter runs.
 	setErrorMsg: (msg: string) =>
 		updateState((draft) => {
 			draft.errorMsg = msg;
+			draft.successMsg = "";
 		}),
 	setSuccessMsg: (msg: string) =>
 		updateState((draft) => {
 			draft.successMsg = msg;
+			draft.errorMsg = "";
 		}),
 	addDebugMessage: (message: string, type: DebugMessage["type"] = "info") => {
 		updateState((draft) => {
