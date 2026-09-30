@@ -4,6 +4,7 @@ import { EpisodeMatcher } from "@/services/effects/EpisodeMatcher";
 import { FileSystem } from "@/services/effects/FileSystem";
 import { Logger } from "@/services/effects/Logger";
 import type { Podcast } from "@/types/podcast";
+import { UNKNOWN_AUTHOR } from "@/utils/formatting";
 
 export class DriveScanError extends Data.TaggedError("DriveScanError")<{
 	readonly cause: unknown;
@@ -174,6 +175,8 @@ export const DriveScanLive = Layer.succeed(
 								episode: {
 									id: `${showName}-${title}`,
 									title: title.replace(/_/g, " "),
+									// Drive-derived episodes have no ZAUTHOR to read.
+									author: UNKNOWN_AUTHOR,
 									duration: 0,
 									published,
 									onDrive: true,
@@ -190,7 +193,7 @@ export const DriveScanLive = Layer.succeed(
 						podcastsMap.set(showName, {
 							id: showName,
 							title: showName.replace(/_/g, " "),
-							author: "Unknown",
+							author: UNKNOWN_AUTHOR,
 							episodeCount: 0,
 							episodes: [],
 						});
@@ -306,11 +309,12 @@ export const createDriveScanTest = (mockPodcasts: MockDrivePodcast[] = []) =>
 			const podcasts: Podcast[] = mockPodcasts.map((mock) => ({
 				id: mock.name,
 				title: mock.name,
-				author: "Unknown",
+				author: UNKNOWN_AUTHOR,
 				episodeCount: mock.episodes.length,
 				episodes: mock.episodes.map((ep) => ({
 					id: ep.id,
 					title: ep.title,
+					author: UNKNOWN_AUTHOR,
 					duration: 0,
 					published: new Date(),
 					onDrive: true,

@@ -54,6 +54,22 @@ describe("store actions", () => {
 		expect(state.transferProgress.totalFiles).toBe(10);
 	});
 
+	it("should keep successMsg separate from errorMsg", () => {
+		actions.setSuccessMsg("Sync complete");
+		expect(state.successMsg).toBe("Sync complete");
+		// A success message must not land in the error channel.
+		expect(state.errorMsg).toBe("");
+
+		actions.setErrorMsg("something broke");
+		expect(state.errorMsg).toBe("something broke");
+		// Setting an error must not clobber the success message.
+		expect(state.successMsg).toBe("Sync complete");
+
+		actions.setSuccessMsg("");
+		expect(state.successMsg).toBe("");
+		actions.setErrorMsg("");
+	});
+
 	it("should add debug messages", () => {
 		actions.clearDebugMessages();
 		actions.addDebugMessage("Test message", "info");

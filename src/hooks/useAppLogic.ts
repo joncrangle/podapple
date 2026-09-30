@@ -347,6 +347,7 @@ export const useAppLogic = () => {
 		actions.setLoadingMac(true);
 		actions.setLoadingDrive(true);
 		actions.setErrorMsg("");
+		actions.setSuccessMsg("");
 
 		run(
 			Effect.gen(function* () {
@@ -372,6 +373,8 @@ export const useAppLogic = () => {
 	 * Starts the sync operation for selected episodes.
 	 */
 	const startSync = (episodesToSync: PodcastEpisode[]) => {
+		// A new sync supersedes any previous outcome message.
+		actions.setSuccessMsg("");
 		const drive = state.currentDrive;
 		if (!drive) {
 			actions.setErrorMsg("No drive selected");
@@ -459,6 +462,7 @@ export const useAppLogic = () => {
 					if (exit.value.success) {
 						yield* loadDrivePodcastsEffect(drive);
 						actions.setMacPodcasts((prev) => prev.map((ep) => ({ ...ep, selected: false })));
+						actions.setSuccessMsg(exit.value.message);
 					} else {
 						actions.setErrorMsg(exit.value.message);
 					}
@@ -467,6 +471,7 @@ export const useAppLogic = () => {
 					if (Cause.hasInterruptsOnly(cause)) {
 						yield* logger.info("Sync cancelled by user");
 						actions.setErrorMsg("");
+						actions.setSuccessMsg("");
 					} else {
 						const err = cause.toString();
 						yield* logger.error("Sync failed", cause);

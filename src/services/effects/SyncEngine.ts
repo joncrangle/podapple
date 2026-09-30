@@ -235,7 +235,7 @@ export const SyncEngineLive = Layer.effect(
 
 								const initialProgress = Stream.succeed<SyncProgress>({
 									currentFile: item.episode.title,
-									currentIndex: i,
+									currentIndex: i + 1,
 									totalFiles: plan.totalFiles,
 									bytesTransferred: bytesWritten,
 									totalBytes: plan.totalBytes,
@@ -258,7 +258,7 @@ export const SyncEngineLive = Layer.effect(
 												bytesWritten += bytes;
 												return {
 													currentFile: item.episode.title,
-													currentIndex: i,
+													currentIndex: i + 1,
 													totalFiles: plan.totalFiles,
 													bytesTransferred: bytesWritten,
 													totalBytes: plan.totalBytes,
@@ -274,7 +274,7 @@ export const SyncEngineLive = Layer.effect(
 												// Emit a progress update to show we are tagging
 												return {
 													currentFile: `Tagging: ${item.episode.title}`,
-													currentIndex: i,
+													currentIndex: i + 1,
 													totalFiles: plan.totalFiles,
 													bytesTransferred: bytesWritten,
 													totalBytes: plan.totalBytes,
@@ -288,6 +288,7 @@ export const SyncEngineLive = Layer.effect(
 										Stream.fromEffect(
 											Effect.gen(function* () {
 												const metadataEditor = yield* MetadataEditor;
+												const fs = yield* FileSystem;
 												yield* logger.debug(`Tagging episode: ${item.episode.title}`);
 												yield* metadataEditor
 													.write(item.destPath, {
@@ -302,10 +303,17 @@ export const SyncEngineLive = Layer.effect(
 														Effect.tap(() =>
 															logger.debug(`Successfully tagged: ${item.episode.title}`),
 														),
+														// A failed tag never fails the sync, but the copied file would linger
+														// half-tagged on the drive, so discard it and let the next run re-copy.
 														Effect.tapError((err) =>
-															logger.error(`Failed to tag: ${item.episode.title}`, err),
+															logger.error(
+																`Failed to tag: ${item.episode.title}, discarding copied file: ${item.destPath}`,
+																err,
+															),
 														),
-														Effect.catch(() => Effect.void),
+														Effect.catch(() =>
+															fs.remove(item.destPath).pipe(Effect.catch(() => Effect.void)),
+														),
 													);
 											}),
 										).pipe(Stream.filterMap(() => Result.fail(undefined))),

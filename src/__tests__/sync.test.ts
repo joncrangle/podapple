@@ -38,6 +38,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-1",
 					title: "Episode 1: Getting Started",
+					author: "Host A",
 					duration: 3600,
 					published: new Date("2024-01-15"),
 					onDrive: false,
@@ -47,6 +48,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-2",
 					title: "Episode 2: Deep Dive",
+					author: "Host A",
 					duration: 1800,
 					published: new Date("2024-01-22"),
 					onDrive: true, // Already synced - should be skipped
@@ -56,6 +58,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-3",
 					title: "Episode 3: Q&A Session",
+					author: "Host A",
 					duration: 2400,
 					published: new Date("2024-01-29"),
 					onDrive: false,
@@ -73,6 +76,7 @@ describe("SyncEngine", () => {
 				{
 					id: "ep-4",
 					title: "The Universe Explained",
+					author: "Host B",
 					duration: 4200,
 					published: new Date("2024-02-01"),
 					onDrive: false,
@@ -368,6 +372,7 @@ describe("SyncEngine", () => {
 							{
 								id: "e1",
 								title: "Ep",
+								author: "A",
 								duration: 100,
 								published: new Date("2024-01-01"),
 								onDrive: false,

@@ -180,6 +180,7 @@ describe("Formatting Utils", () => {
 		const mockEpisode: PodcastEpisode = {
 			id: "1",
 			title: "Ep 1",
+			author: "Host A",
 			showName: "Show A",
 			filePath: "/path/to/ep1.mp3",
 			published: new Date("2023-01-01"),
@@ -208,6 +209,46 @@ describe("Formatting Utils", () => {
 				expect(showB).toBeDefined();
 				expect(showB?.episodes).toHaveLength(1);
 			});
+
+			test("threads the episode author onto the grouped podcast", () => {
+				const episodes = [
+					{ ...mockEpisode, id: "1", title: "Ep 1", author: "Dan Carlin" },
+					{ ...mockEpisode, id: "2", title: "Ep 2", author: "Dan Carlin" },
+				];
+
+				const grouped = groupEpisodesByPodcast(episodes);
+				const showA = grouped.find((p) => p.title === "Show A");
+
+				expect(showA?.author).toBe("Dan Carlin");
+				// The author is carried down onto each episode too.
+				expect(showA?.episodes.map((e) => e.author)).toEqual(["Dan Carlin", "Dan Carlin"]);
+			});
+
+			test("falls back to a non-blank author when no episode has one", () => {
+				const episodes = [
+					{ ...mockEpisode, id: "1", title: "Ep 1", author: "" },
+					{ ...mockEpisode, id: "2", title: "Ep 2", author: "   " },
+				];
+
+				const grouped = groupEpisodesByPodcast(episodes);
+				const showA = grouped.find((p) => p.title === "Show A");
+
+				// Never the empty string: a blank ID3 artist tag is the bug being fixed.
+				expect(showA?.author).not.toBe("");
+				expect(showA?.author).toBe("Unknown");
+			});
+
+			test("uses the first non-empty author when authors are mixed", () => {
+				const episodes = [
+					{ ...mockEpisode, id: "1", title: "Ep 1", author: "" },
+					{ ...mockEpisode, id: "2", title: "Ep 2", author: "David Senra" },
+				];
+
+				const grouped = groupEpisodesByPodcast(episodes);
+				const showA = grouped.find((p) => p.title === "Show A");
+
+				expect(showA?.author).toBe("David Senra");
+			});
 		});
 
 		describe("mapPodcastsToEpisodes", () => {
@@ -222,6 +263,7 @@ describe("Formatting Utils", () => {
 							{
 								id: "1",
 								title: "Ep 1",
+								author: "Author",
 								duration: 3600,
 								published: new Date("2023-01-01"),
 								onDrive: true,

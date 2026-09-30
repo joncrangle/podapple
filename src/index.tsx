@@ -115,6 +115,12 @@ const App = () => {
 				</box>
 			</Show>
 
+			<Show when={state.successMsg}>
+				<box style={{ paddingLeft: 4 }}>
+					<text style={{ fg: Colors.text.success }}>{state.successMsg}</text>
+				</box>
+			</Show>
+
 			<box flexDirection='row' flexGrow={1}>
 				<PodcastView width={layout().macWidth} flexGrow={layout().macGrow} logic={logic} />
 				<DriveView width={layout().driveWidth} flexGrow={layout().driveGrow} logic={logic} />

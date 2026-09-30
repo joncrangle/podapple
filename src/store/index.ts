@@ -29,6 +29,7 @@ export interface AppState {
 	isScanning: boolean;
 	transferProgress: TransferProgress;
 	errorMsg: string;
+	successMsg: string;
 	debugMessages: DebugMessage[];
 	lastKey: string | null;
 	lastSavedTheme: string;
@@ -62,6 +63,7 @@ const initialState: AppState = {
 		speed: 0,
 	},
 	errorMsg: "",
+	successMsg: "",
 	debugMessages: [],
 	lastKey: null,
 	lastSavedTheme: "Catppuccin",
@@ -150,6 +152,10 @@ export const actions = {
 	setErrorMsg: (msg: string) =>
 		updateState((draft) => {
 			draft.errorMsg = msg;
+		}),
+	setSuccessMsg: (msg: string) =>
+		updateState((draft) => {
+			draft.successMsg = msg;
 		}),
 	addDebugMessage: (message: string, type: DebugMessage["type"] = "info") => {
 		updateState((draft) => {

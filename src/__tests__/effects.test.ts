@@ -354,6 +354,7 @@ describe("SyncEngine Service", () => {
 				{
 					id: "ep-1",
 					title: "Episode 1",
+					author: "Host A",
 					duration: 3600,
 					published: new Date("2024-01-01"),
 					onDrive: false,
@@ -363,6 +364,7 @@ describe("SyncEngine Service", () => {
 				{
 					id: "ep-2",
 					title: "Episode 2",
+					author: "Host A",
 					duration: 1800,
 					published: new Date("2024-01-08"),
 					onDrive: true,
