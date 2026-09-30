@@ -1,5 +1,5 @@
 import { dirname } from "node:path";
-import { Cause, Effect, Exit, Fiber, Layer, Stream } from "effect";
+import { Cause, Effect, Exit, Fiber, Layer, Option, Stream } from "effect";
 import { onSettled } from "solid-js";
 import {
 	DriveDetection,
@@ -77,6 +77,104 @@ type AppRequirements =
 	| Logger;
 
 /**
+ * Assembles the service graph from its leaves.
+ *
+ * Each service is a parameter so tests can substitute one. The alternatives are
+ * a drive, a database or an unplugged cable, none of which belong in a unit
+ * test. Passed the live layers, the result is the app's production wiring.
+ */
+const buildLayer = (services: {
+	scan: Layer.Layer<DriveScan>;
+	sync: Layer.Layer<SyncEngine>;
+	scanDeps: Layer.Layer<FileSystem | EpisodeMatcher | Logger>;
+	syncDeps: Layer.Layer<FileSystem | MetadataEditor>;
+}): Layer.Layer<never> =>
+	Layer.mergeAll(
+		Detection.pipe(Layer.provide(services.scanDeps)),
+		Podcast.pipe(Layer.provide(services.scanDeps)),
+		services.scanDeps,
+		services.scan,
+		services.syncDeps,
+		services.sync,
+		Settings.pipe(Layer.provide(services.scanDeps)),
+	) as Layer.Layer<never>;
+
+/**
+ * The live service layer. Exposed so tests can supply their own.
+ */
+export const makeAppLayer = (): Layer.Layer<AppRequirements> =>
+	AppLayer as unknown as Layer.Layer<AppRequirements>;
+
+/**
+ * The production wiring with a substitute for the services a test needs to
+ * control. Only DriveScan and SyncEngine are substitutable: the others are
+ * leaves, and a double for one would need its own dependencies wired in.
+ */
+export const makeAppLayerWith = (overrides: {
+	scan?: Layer.Layer<DriveScan>;
+	sync?: Layer.Layer<SyncEngine>;
+}): Layer.Layer<AppRequirements> => {
+	// The substitution has to win over the live layer it shadows, and in a merge
+	// the later layer does. Scan and Sync arrive already provided Base, so the
+	// override is merged at the leaves rather than over the whole graph.
+	const scanLayer = overrides.scan
+		? (Layer.mergeAll(Scan, overrides.scan) as Layer.Layer<DriveScan>)
+		: Scan;
+	const syncLayer = overrides.sync
+		? (Layer.mergeAll(Sync, overrides.sync) as Layer.Layer<SyncEngine>)
+		: Sync;
+	return buildLayer({
+		scan: scanLayer,
+		sync: syncLayer,
+		scanDeps: Base,
+		syncDeps: Layer.mergeAll(Base, scanLayer),
+	}) as unknown as Layer.Layer<AppRequirements>;
+};
+
+const nonEmpty = (value: unknown): value is string =>
+	typeof value === "string" && value.trim() !== "";
+
+/**
+ * Renders an error for the status line.
+ *
+ * Deliberately not `err instanceof Error ? err.message : String(err)`: Effect's
+ * tagged errors (Data.TaggedError) are Errors with an empty `message`, so that
+ * check silently produces an empty status and the user sees nothing at all.
+ *
+ * Prefers a real message, then the cause, then the tag. Anything that would
+ * stringify to something meaningless (an empty string, a bare class name,
+ * "[object Object]", "null") becomes "Unknown error", because a status line
+ * showing that is worse than one admitting it does not know.
+ */
+export const describeError = (err: unknown): string => {
+	// An Effect Cause wraps the real failure. Unwrap it, or the user reads
+	// "Cause([Fail(SyncError (cause: Error: disk full))])" instead of "disk full".
+	if (Cause.isCause(err)) {
+		return Option.match(Cause.findErrorOption(err), {
+			onNone: () => (Cause.hasInterruptsOnly(err) ? "Cancelled" : describeError(Cause.pretty(err))),
+			onSome: (e) => describeError(e),
+		});
+	}
+
+	if (err instanceof Error && nonEmpty(err.message)) return err.message;
+
+	if (typeof err === "object" && err !== null) {
+		const { cause } = err as { cause?: unknown };
+		if (nonEmpty(cause)) return cause;
+		if (cause instanceof Error && nonEmpty(cause.message)) return cause.message;
+		const { _tag } = err as { _tag?: unknown };
+		if (nonEmpty(_tag)) return _tag;
+	}
+
+	// Nothing usable on the value itself. String() is only worth it for
+	// primitives, where it is the whole story.
+	if (typeof err === "string") return err.trim() === "" ? "Unknown error" : err;
+	if (typeof err === "number" || typeof err === "boolean") return String(err);
+
+	return "Unknown error";
+};
+
+/**
  * Builds the success message for a completed sync.
  *
  * Files are discarded when tagging fails, so the sync still succeeds but the
@@ -90,8 +188,11 @@ export const syncSuccessMessage = (discarded: number): string =>
 
 /**
  * Hook containing the core application logic, orchestrating various Effect services.
+ *
+ * @param layer Service layer to run against. Defaults to the live services;
+ *   tests pass fakes to drive the real control flow.
  */
-export const useAppLogic = () => {
+export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()) => {
 	let driveListenerFiber: Fiber.Fiber<unknown, unknown> | undefined;
 	let activeSyncFiber: Fiber.Fiber<unknown, unknown> | undefined;
 
@@ -99,18 +200,16 @@ export const useAppLogic = () => {
 	 * Runs an effect to completion using the AppLayer.
 	 */
 	const run = <A, E, R extends AppRequirements>(effect: Effect.Effect<A, E, R>) =>
-		Effect.runPromise(Effect.provide(effect, AppLayer as unknown as Layer.Layer<R>)).catch(
-			(err) => {
-				console.error("Unhandled Effect Promise rejection:", err);
-				actions.addDebugMessage(`Unhandled error: ${String(err)}`, "error");
-			},
-		);
+		Effect.runPromise(Effect.provide(effect, layer as unknown as Layer.Layer<R>)).catch((err) => {
+			console.error("Unhandled Effect Promise rejection:", err);
+			actions.addDebugMessage(`Unhandled error: ${String(err)}`, "error");
+		});
 
 	/**
 	 * Runs an effect as a fiber using the AppLayer.
 	 */
 	const runFork = <A, E, R extends AppRequirements>(effect: Effect.Effect<A, E, R>) =>
-		Effect.runFork(Effect.provide(effect, AppLayer as unknown as Layer.Layer<R>));
+		Effect.runFork(Effect.provide(effect, layer as unknown as Layer.Layer<R>));
 
 	/**
 	 * Helper for view transitions that ensures a view is set during effect execution
@@ -150,7 +249,7 @@ export const useAppLogic = () => {
 			// success does not overwrite the error set here. The two status fields are
 			// mutually exclusive, so a later setSuccessMsg would clear it.
 			Effect.catch((err) => {
-				const errorMessage = err instanceof Error ? err.message : String(err);
+				const errorMessage = describeError(err);
 				actions.setErrorMsg(errorMessage);
 				actions.addDebugMessage(errorMessage, "error");
 				actions.setDrivePodcasts([]);
@@ -199,7 +298,7 @@ export const useAppLogic = () => {
 			}
 		}).pipe(
 			Effect.catch((err) => {
-				const errorMessage = err instanceof Error ? err.message : String(err);
+				const errorMessage = describeError(err);
 				actions.setErrorMsg(errorMessage);
 				actions.addDebugMessage(errorMessage, "error");
 				actions.setDrives([]);
@@ -259,7 +358,7 @@ export const useAppLogic = () => {
 			);
 		}).pipe(
 			Effect.catch((err) => {
-				const errorMessage = err instanceof Error ? err.message : String(err);
+				const errorMessage = describeError(err);
 				actions.addDebugMessage(`Drive listener error: ${errorMessage}`, "error");
 				return Effect.void;
 			}),
@@ -348,7 +447,7 @@ export const useAppLogic = () => {
 				}
 			}).pipe(
 				Effect.catch((err) => {
-					const errorMessage = err instanceof Error ? err.message : String(err);
+					const errorMessage = describeError(err);
 					actions.setErrorMsg(errorMessage);
 					actions.addDebugMessage(errorMessage, "error");
 					return Effect.void;
@@ -373,7 +472,7 @@ export const useAppLogic = () => {
 				actions.setMacPodcasts(episodes);
 			}).pipe(
 				Effect.catch((err) => {
-					actions.setErrorMsg(err instanceof Error ? err.message : String(err));
+					actions.setErrorMsg(describeError(err));
 					return Effect.void;
 				}),
 				Effect.onExit(() => Effect.sync(() => actions.setLoadingMac(false))),
@@ -500,9 +599,11 @@ export const useAppLogic = () => {
 						yield* logger.info("Sync cancelled by user");
 						actions.setErrorMsg("");
 					} else {
-						const err = cause.toString();
 						yield* logger.error("Sync failed", cause);
-						actions.setErrorMsg(String(err));
+						// Not cause.toString(): that renders the whole Effect cause
+						// wrapper, e.g. "Cause([Fail(SyncError (cause: Error: disk full))])",
+						// where the user needs to read "disk full".
+						actions.setErrorMsg(describeError(cause));
 					}
 				}
 			}).pipe(withView("syncing")),

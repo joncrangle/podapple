@@ -8,7 +8,7 @@ import { Header } from "@/components/Header";
 import { ThemePicker } from "@/components/ThemePicker";
 import { TransferPopup } from "@/components/TransferPopup";
 import { useAppKeyboard } from "@/hooks/useAppKeyboard";
-import { useAppLogic } from "@/hooks/useAppLogic";
+import { describeError, useAppLogic } from "@/hooks/useAppLogic";
 import { actions, state } from "@/store";
 import { Colors } from "@/theme/colors";
 import { selectDrive } from "@/utils/driveSelection";
@@ -195,7 +195,7 @@ const Root = () => {
 					>
 						<text style={{ fg: Colors.text.error }}>Fatal Error Occurred:</text>
 						<box marginTop={1}>
-							<text>{error instanceof Error ? error.message : String(error)}</text>
+							<text>{describeError(error)}</text>
 						</box>
 						<box marginTop={1}>
 							<text>Press Ctrl+C to exit.</text>
