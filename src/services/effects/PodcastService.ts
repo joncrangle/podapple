@@ -116,13 +116,3 @@ export const PodcastServiceLive = Layer.effect(
 		});
 	}),
 );
-
-/**
- * Creates a mock PodcastService for testing.
- */
-export const createPodcastServiceTest = (episodes: PodcastEpisode[] = []) =>
-	Layer.succeed(PodcastService, {
-		getDatabasePath: () => "/mock/path/to/db.sqlite",
-		checkAvailability: Effect.succeed(true),
-		loadMacPodcasts: Effect.succeed(episodes),
-	});
