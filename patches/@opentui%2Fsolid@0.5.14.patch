@@ -1,26 +1,5 @@
-diff --git a/node_modules/@opentui/solid/.bun-tag-25d873c820729c6e b/.bun-tag-25d873c820729c6e
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@opentui/solid/.bun-tag-30ebfe2ac5ae6ce4 b/.bun-tag-30ebfe2ac5ae6ce4
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@opentui/solid/.bun-tag-37814309257904d3 b/.bun-tag-37814309257904d3
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@opentui/solid/.bun-tag-85b331d416031a66 b/.bun-tag-85b331d416031a66
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@opentui/solid/.bun-tag-ca17d67b79a1755d b/.bun-tag-ca17d67b79a1755d
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@opentui/solid/.bun-tag-ea6c0dbad8574b0b b/.bun-tag-ea6c0dbad8574b0b
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
-diff --git a/node_modules/@opentui/solid/.bun-tag-fd9507e5a5b36088 b/.bun-tag-fd9507e5a5b36088
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/index.bun.js b/index.bun.js
-index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a73e72539f 100644
+index a68be404614cb4811e16e439325b9f46e39653ef..c54b5407889b9ac581aa94b2041a0f1f6c8a4784 100644
 --- a/index.bun.js
 +++ b/index.bun.js
 @@ -117,7 +117,7 @@ import {
@@ -202,7 +181,7 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
    return renderer;
  }
  
-@@ -843,21 +872,25 @@ function Portal(props) {
+@@ -843,28 +872,32 @@ function Portal(props) {
    const renderer = useRenderer();
    const marker = createSlotNode(), mount = () => props.mount || renderer.root, owner = getOwner();
    let content;
@@ -219,8 +198,12 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
 -    insert(renderRoot, content);
 -    el.add(container);
 -    props.ref && props.ref(container);
--    onCleanup3(() => el.remove(container));
--  }, undefined, { render: true });
+-    onCleanup3(() => {
+-      el.remove(container);
+-      process.nextTick(() => {
+-        if (!container.parent) {
+-          container.destroyRecursively();
+-        }
 +  createRenderEffect2(
 +    () => props.children,
 +    () => {
@@ -232,18 +215,27 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
 +          return marker.parent;
 +        },
 +        configurable: true
-+      });
+       });
+-    });
+-  }, undefined, { render: true });
 +      insert(renderRoot, content);
 +      el.add(container);
 +      props.ref && props.ref(container);
-+      return () => el.remove(container);
++      return () => {
++        el.remove(container);
++        process.nextTick(() => {
++          if (!container.parent) {
++            container.destroyRecursively();
++          }
++        });
++      };
 +    },
 +    { render: true }
 +  );
    return marker;
  }
  function createDynamic(component, props) {
-@@ -1303,7 +1336,7 @@ function createScrollbackWriter(node, options = {}) {
+@@ -1310,7 +1343,7 @@ function createScrollbackWriter(node, options = {}) {
        dispose?.();
      };
      try {
@@ -252,7 +244,7 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
          get value() {
            return snapshotRenderer.renderer;
          },
-@@ -1344,7 +1377,7 @@ var TimeToFirstDraw = (props) => {
+@@ -1351,7 +1384,7 @@ var TimeToFirstDraw = (props) => {
  };
  // src/plugins/slot.tsx
  import { createSlotRegistry } from "@opentui/core";
@@ -261,7 +253,7 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
  var EMPTY_ENTRY_IDS = [];
  function createSolidSlotRegistry(renderer, context, options = {}) {
    return createSlotRegistry(renderer, "solid:slot-registry", context, options);
-@@ -1360,7 +1393,7 @@ function createSlot(registry, options = {}) {
+@@ -1367,7 +1400,7 @@ function createSlot(registry, options = {}) {
    };
  }
  function Slot(props) {
@@ -270,7 +262,7 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
    const registry = () => local.registry;
    const pluginFailurePlaceholder = () => local.pluginFailurePlaceholder;
    const [version, setVersion] = createSignal3(0);
-@@ -1446,14 +1479,14 @@ function Slot(props) {
+@@ -1453,14 +1486,14 @@ function Slot(props) {
      if (!hasInitialOutput) {
        return resolveFallback(fallbackOnError);
      }
@@ -287,7 +279,7 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
          });
          return renderPluginFailurePlaceholder(failure, fallbackOnError);
        },
-@@ -1540,7 +1573,7 @@ var mountSolidRoot = (renderer, node) => {
+@@ -1547,7 +1580,7 @@ var mountSolidRoot = (renderer, node) => {
      originalDestroy();
    };
    try {
@@ -297,7 +289,7 @@ index 5e281cd6e6f3cbb7ffdff0464413d6ab204363a5..c386c9cb4e31c170dff1d1b19e9601a7
          return renderer;
        },
 diff --git a/index.js b/index.js
-index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d9f870a58 100644
+index 61e64c1a01e23da4243db0a45abef2ebddd246f0..4d28aa3f93115b4a68143033d804ca2d13b8db9a 100644
 --- a/index.js
 +++ b/index.js
 @@ -100,7 +100,7 @@ function getComponentCatalogue() {
@@ -479,7 +471,7 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
    return renderer;
  }
  
-@@ -820,23 +849,25 @@ function Portal(props) {
+@@ -820,30 +849,32 @@ function Portal(props) {
    const renderer = useRenderer();
    const marker = createSlotNode(), mount = () => props.mount || renderer.root, owner = getOwner();
    let content;
@@ -496,10 +488,12 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
 -    insert(renderRoot, content);
 -    el.add(container);
 -    props.ref && props.ref(container);
--    onCleanup3(() => el.remove(container));
--  }, undefined, {
--    render: true
--  });
+-    onCleanup3(() => {
+-      el.remove(container);
+-      process.nextTick(() => {
+-        if (!container.parent) {
+-          container.destroyRecursively();
+-        }
 +  createRenderEffect2(
 +    () => props.children,
 +    () => {
@@ -511,18 +505,29 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
 +          return marker.parent;
 +        },
 +        configurable: true
-+      });
+       });
+-    });
+-  }, undefined, {
+-    render: true
+-  });
 +      insert(renderRoot, content);
 +      el.add(container);
 +      props.ref && props.ref(container);
-+      return () => el.remove(container);
++      return () => {
++        el.remove(container);
++        process.nextTick(() => {
++          if (!container.parent) {
++            container.destroyRecursively();
++          }
++        });
++      };
 +    },
 +    { render: true }
 +  );
    return marker;
  }
  function createDynamic(component, props) {
-@@ -1277,7 +1308,7 @@ function createScrollbackWriter(node, options = {}) {
+@@ -1284,7 +1315,7 @@ function createScrollbackWriter(node, options = {}) {
        dispose?.();
      };
      try {
@@ -531,7 +536,7 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
          get value() {
            return snapshotRenderer.renderer;
          },
-@@ -1318,7 +1349,7 @@ var TimeToFirstDraw = (props) => {
+@@ -1325,7 +1356,7 @@ var TimeToFirstDraw = (props) => {
  };
  // src/plugins/slot.tsx
  import { createSlotRegistry } from "@opentui/core";
@@ -540,7 +545,7 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
  var EMPTY_ENTRY_IDS = [];
  function createSolidSlotRegistry(renderer, context, options = {}) {
    return createSlotRegistry(renderer, "solid:slot-registry", context, options);
-@@ -1334,7 +1365,7 @@ function createSlot(registry, options = {}) {
+@@ -1341,7 +1372,7 @@ function createSlot(registry, options = {}) {
    };
  }
  function Slot(props) {
@@ -549,7 +554,7 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
    const registry = () => local.registry;
    const pluginFailurePlaceholder = () => local.pluginFailurePlaceholder;
    const [version, setVersion] = createSignal3(0);
-@@ -1420,14 +1451,14 @@ function Slot(props) {
+@@ -1427,14 +1458,14 @@ function Slot(props) {
      if (!hasInitialOutput) {
        return resolveFallback(fallbackOnError);
      }
@@ -566,7 +571,7 @@ index 8fc2a09ecb51194fdf758551c6bd8d518c11c452..191c3b4c48128d2a7904a2c6f899e53d
          });
          return renderPluginFailurePlaceholder(failure, fallbackOnError);
        },
-@@ -1514,7 +1545,7 @@ var mountSolidRoot = (renderer, node) => {
+@@ -1521,7 +1552,7 @@ var mountSolidRoot = (renderer, node) => {
      originalDestroy();
    };
    try {

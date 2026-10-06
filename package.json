@@ -14,26 +14,26 @@
 		"build": "bun scripts/build.ts"
 	},
 	"dependencies": {
-		"@opentui/core": "0.5.11",
-		"@opentui/solid": "0.5.11",
-		"effect": "4.0.0-rc.116",
+		"@opentui/core": "0.5.14",
+		"@opentui/solid": "0.5.14",
+		"effect": "4.0.1",
 		"node-id3": "^0.2.9",
-		"solid-js": "2.0.0-rc.9"
+		"solid-js": "2.0.0-rc.13"
 	},
 	"devDependencies": {
-		"@effect/language-service": "^0.87.2",
+		"@effect/language-service": "^0.87.4",
 		"@types/bun": "^1.4.2",
-		"oxfmt": "^0.70.0",
-		"oxlint": "^1.85.0"
+		"oxfmt": "^0.72.0",
+		"oxlint": "^1.87.0"
 	},
 	"peerDependencies": {
 		"typescript": "^6.0.3"
 	},
 	"optionalDependencies": {
-		"@opentui/core-darwin-arm64": "0.5.11",
-		"@opentui/core-darwin-x64": "0.5.11"
+		"@opentui/core-darwin-arm64": "0.5.14",
+		"@opentui/core-darwin-x64": "0.5.14"
 	},
 	"patchedDependencies": {
-		"@opentui/solid@0.5.11": "patches/@opentui%2Fsolid@0.5.11.patch"
+		"@opentui/solid@0.5.14": "patches/@opentui%2Fsolid@0.5.14.patch"
 	}
 }
