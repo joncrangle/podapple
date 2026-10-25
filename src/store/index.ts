@@ -38,7 +38,7 @@ export interface AppState {
 	favoriteDrives: string[];
 }
 
-const initialState: AppState = {
+const createInitialState = (): AppState => ({
 	appView: "normal",
 	focusedPane: "mac",
 	macIndex: 0,
@@ -68,9 +68,9 @@ const initialState: AppState = {
 	lastKey: null,
 	lastSavedTheme: "Catppuccin",
 	favoriteDrives: [],
-};
+});
 
-export const [state, setState] = createStore<AppState>(initialState);
+export const [state, setState] = createStore<AppState>(createInitialState());
 
 const updateState = (update: (draft: AppState) => void): void => {
 	setState(update);
@@ -232,6 +232,6 @@ export const actions = {
 	},
 	resetState: () =>
 		updateState((draft) => {
-			Object.assign(draft, initialState);
+			Object.assign(draft, createInitialState());
 		}),
 };

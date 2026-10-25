@@ -98,4 +98,28 @@ describe("store actions", () => {
 		expect(state.debugMessages.length).toBe(1);
 		expect(state.debugMessages[0]?.message).toBe("Test message");
 	});
+
+	it("should fully reset state without mutating the initial state", () => {
+		actions.resetState();
+		actions.addDebugMessage("x");
+		actions.updateTransferProgress({ filesDone: 3 });
+		actions.toggleFavoriteDrive("d");
+		expect(state.debugMessages.length).toBe(1);
+		expect(state.transferProgress.filesDone).toBe(3);
+		expect(state.favoriteDrives).toEqual(["d"]);
+
+		actions.resetState();
+		expect(state.debugMessages.length).toBe(0);
+		expect(state.transferProgress.filesDone).toBe(0);
+		expect(state.favoriteDrives).toEqual([]);
+
+		// A second round proves each reset hands out fresh objects.
+		actions.addDebugMessage("y");
+		actions.updateTransferProgress({ filesDone: 5 });
+		actions.toggleFavoriteDrive("e");
+		actions.resetState();
+		expect(state.debugMessages.length).toBe(0);
+		expect(state.transferProgress.filesDone).toBe(0);
+		expect(state.favoriteDrives).toEqual([]);
+	});
 });
