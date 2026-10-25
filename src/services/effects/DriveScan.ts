@@ -4,7 +4,7 @@ import { EpisodeMatcher } from "@/services/effects/EpisodeMatcher";
 import { FileSystem } from "@/services/effects/FileSystem";
 import { Logger } from "@/services/effects/Logger";
 import type { Podcast } from "@/types/podcast";
-import { UNKNOWN_AUTHOR } from "@/utils/formatting";
+import { driveEpisodeKey, UNKNOWN_AUTHOR, UNKNOWN_DATE } from "@/utils/formatting";
 
 export class DriveScanError extends Data.TaggedError("DriveScanError")<{
 	readonly cause: unknown;
@@ -38,11 +38,20 @@ export class DriveScan extends Context.Service<
 /**
  * Helper to parse podcast file info from path.
  * extracts show name, title, and date if available.
+ * Names are normalized to NFC: macOS can hand back NFD names, and the same show
+ * must not split into two groups depending on the form.
+ *
+ * `dateStr` is the literal date from the filename ("YYYY-MM-DD" or "Unknown"), or ""
+ * when the file has no date prefix. It is what drive matching keys on.
  */
-function parsePodcastFile(
-	path: string,
-): { showName: string; title: string; date?: Date; rawTitle: string } | null {
-	const normalizedPath = path.replace(/\\/g, "/");
+function parsePodcastFile(path: string): {
+	showName: string;
+	title: string;
+	date?: Date;
+	dateStr: string;
+	rawTitle: string;
+} | null {
+	const normalizedPath = path.replace(/\\/g, "/").normalize("NFC");
 	const parts = normalizedPath.split("/");
 	const filename = parts[parts.length - 1];
 	if (!filename) return null;
@@ -53,21 +62,35 @@ function parsePodcastFile(
 	const rawTitle = filename.slice(0, -ext.length);
 	let title = rawTitle;
 	let date: Date | undefined;
+	let dateStr = "";
 
-	const dateMatch = rawTitle.match(/^(\d{4}-\d{2}-\d{2}) - (.+)$/);
+	const dateMatch = rawTitle.match(/^(\d{4}-\d{2}-\d{2}|Unknown) - (.+)$/);
 	if (dateMatch) {
 		const titlePart = dateMatch[2];
-		if (titlePart) {
-			const dateStr = dateMatch[1];
-			const parsedDate = new Date(dateStr ?? "");
-			if (!isNaN(parsedDate.getTime())) {
+		const literal = dateMatch[1];
+		if (titlePart && literal) {
+			if (literal === UNKNOWN_DATE) {
 				title = titlePart;
-				date = parsedDate;
+				dateStr = literal;
+			} else {
+				const [y, m, d] = literal.split("-").map(Number) as [number, number, number];
+				// Local noon: formatDate reads local fields, so a UTC-midnight parse would
+				// show the previous day west of UTC. Noon keeps the UTC date equal too.
+				const parsedDate = new Date(y, m - 1, d, 12);
+				if (
+					parsedDate.getFullYear() === y &&
+					parsedDate.getMonth() === m - 1 &&
+					parsedDate.getDate() === d
+				) {
+					title = titlePart;
+					date = parsedDate;
+					dateStr = literal;
+				}
 			}
 		}
 	}
 
-	return { showName, title, date, rawTitle };
+	return { showName, title, date, dateStr, rawTitle };
 }
 
 /**
@@ -152,7 +175,7 @@ export const DriveScanLive = Layer.succeed(
 					candidates,
 					({ file, info }) =>
 						Effect.gen(function* () {
-							const { showName, title, date } = info;
+							const { showName, title, date, dateStr } = info;
 							const fullPath = join(podcastsDir, file);
 
 							let published = date;
@@ -173,7 +196,7 @@ export const DriveScanLive = Layer.succeed(
 							return {
 								showName,
 								episode: {
-									id: `${showName}-${title}`,
+									id: `${showName}-${dateStr ? `${dateStr} - ` : ""}${title}`,
 									title: title.replace(/_/g, " "),
 									// Drive-derived episodes have no ZAUTHOR to read.
 									author: UNKNOWN_AUTHOR,
@@ -182,6 +205,7 @@ export const DriveScanLive = Layer.succeed(
 									onDrive: true,
 									filePath: fullPath,
 									fileSize: size,
+									driveDate: dateStr,
 								},
 							};
 						}),
@@ -243,8 +267,8 @@ export const DriveScanLive = Layer.succeed(
 					candidates,
 					({ file, info }) =>
 						Effect.gen(function* () {
-							const { showName, title } = info;
-							const key = matcher.buildExpectedDrivePath(showName, title);
+							const { showName, title, dateStr } = info;
+							const key = matcher.buildExpectedDrivePath(showName, title, dateStr);
 							const fullPath = join(podcastsDir, file);
 
 							let size = 0;
@@ -297,6 +321,8 @@ interface MockDrivePodcast {
 		title: string;
 		path: string;
 		size: number;
+		/** Date string as in the filename ("YYYY-MM-DD" or "Unknown"); omit for an undated file. */
+		date?: string;
 	}>;
 }
 
@@ -320,6 +346,7 @@ export const createDriveScanTest = (mockPodcasts: MockDrivePodcast[] = []) =>
 					onDrive: true,
 					filePath: ep.path,
 					fileSize: ep.size,
+					driveDate: ep.date ?? "",
 				})),
 			}));
 			return Effect.succeed(podcasts);
@@ -329,7 +356,7 @@ export const createDriveScanTest = (mockPodcasts: MockDrivePodcast[] = []) =>
 			const index = new Map<string, { id: string; title: string; path: string; size: number }>();
 			for (const podcast of mockPodcasts) {
 				for (const ep of podcast.episodes) {
-					const key = `${podcast.name}/${ep.title}`;
+					const key = driveEpisodeKey(podcast.name, ep.title, ep.date ?? "");
 					index.set(key, {
 						id: ep.id,
 						title: ep.title,

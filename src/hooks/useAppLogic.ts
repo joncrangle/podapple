@@ -85,13 +85,14 @@ type AppRequirements =
  * test. Passed the live layers, the result is the app's production wiring.
  */
 const buildLayer = (services: {
+	detection: Layer.Layer<DriveDetection>;
 	scan: Layer.Layer<DriveScan>;
 	sync: Layer.Layer<SyncEngine>;
 	scanDeps: Layer.Layer<FileSystem | EpisodeMatcher | Logger>;
 	syncDeps: Layer.Layer<FileSystem | MetadataEditor>;
 }): Layer.Layer<never> =>
 	Layer.mergeAll(
-		Detection.pipe(Layer.provide(services.scanDeps)),
+		services.detection,
 		Podcast.pipe(Layer.provide(services.scanDeps)),
 		services.scanDeps,
 		services.scan,
@@ -112,6 +113,7 @@ export const makeAppLayer = (): Layer.Layer<AppRequirements> =>
  * leaves, and a double for one would need its own dependencies wired in.
  */
 export const makeAppLayerWith = (overrides: {
+	detection?: Layer.Layer<DriveDetection>;
 	scan?: Layer.Layer<DriveScan>;
 	sync?: Layer.Layer<SyncEngine>;
 }): Layer.Layer<AppRequirements> => {
@@ -124,7 +126,14 @@ export const makeAppLayerWith = (overrides: {
 	const syncLayer = overrides.sync
 		? (Layer.mergeAll(Sync, overrides.sync) as Layer.Layer<SyncEngine>)
 		: Sync;
+	const detectionLayer = overrides.detection
+		? (Layer.mergeAll(
+				Detection.pipe(Layer.provide(Base)),
+				overrides.detection,
+			) as Layer.Layer<DriveDetection>)
+		: Detection.pipe(Layer.provide(Base));
 	return buildLayer({
+		detection: detectionLayer,
 		scan: scanLayer,
 		sync: syncLayer,
 		scanDeps: Base,
@@ -245,6 +254,29 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 			);
 
 	const isCurrentDrive = (drive: Drive): boolean => state.currentDrive?.id === drive.id;
+
+	/**
+	 * Re-reads the drive's free space, which is otherwise frozen at detection
+	 * time and goes stale after a sync or delete. The store is updated only if
+	 * the drive is still current. If the read fails, the last known value stands.
+	 * Resolves to the best known free space for `drive`.
+	 */
+	const refreshFreeSpace = (drive: Drive): Effect.Effect<number, never, DriveDetection> =>
+		Effect.gen(function* () {
+			const detection = yield* DriveDetection;
+			const known =
+				state.currentDrive?.id === drive.id ? state.currentDrive.freeSpace : drive.freeSpace;
+			const fresh = yield* detection
+				.getFreeSpace(drive.mountPoint)
+				.pipe(Effect.catch(() => Effect.succeed(undefined)));
+			if (fresh === undefined) return known;
+			if (isCurrentDrive(drive)) {
+				const withFree = (d: Drive): Drive => (d.id === drive.id ? { ...d, freeSpace: fresh } : d);
+				actions.setCurrentDrive((prev) => (prev ? withFree(prev) : prev));
+				actions.setDrives((prev) => prev.map(withFree));
+			}
+			return fresh;
+		});
 
 	/**
 	 * With no readable drive listing, no Mac episode can claim to be on the drive.
@@ -595,10 +627,11 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 
 			// Refuse up front rather than fail midway with a half-copied drive. A
 			// negative freeSpace means the drive could not report it, so no check.
-			if (drive.freeSpace >= 0 && plan.totalBytes > drive.freeSpace) {
+			const freeSpace = yield* refreshFreeSpace(drive);
+			if (freeSpace >= 0 && plan.totalBytes > freeSpace) {
 				return {
 					success: false,
-					message: `Not enough space on ${drive.name}: need ${formatBytes(plan.totalBytes)}, have ${formatBytes(drive.freeSpace)}`,
+					message: `Not enough space on ${drive.name}: need ${formatBytes(plan.totalBytes)}, have ${formatBytes(freeSpace)}`,
 				};
 			}
 
@@ -653,6 +686,10 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 
 				const exit = yield* Fiber.await(fiber);
 				activeSyncFiber = undefined;
+
+				// Whatever the outcome, files may have landed: the cached free space
+				// is stale.
+				yield* refreshFreeSpace(drive);
 
 				if (Exit.isSuccess(exit)) {
 					if (exit.value.success) {
@@ -736,6 +773,7 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 				);
 
 				if (drive) {
+					yield* refreshFreeSpace(drive);
 					yield* loadDrivePodcastsEffect(drive);
 				}
 				actions.setDrivePodcasts((prev) => prev.map((ep) => ({ ...ep, selected: false })));

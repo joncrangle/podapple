@@ -8,6 +8,8 @@ const BYTES_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
 /** Fallback podcast author. Matches the DriveScan convention so ID3 artist is never blank. */
 export const UNKNOWN_AUTHOR = "Unknown";
+/** Date label used in drive filenames when an episode has no usable publish date. */
+export const UNKNOWN_DATE = "Unknown";
 
 /**
  * Formats bytes into human-readable string
@@ -146,7 +148,7 @@ export function formatDuration(rawSeconds: number): string {
  */
 export function formatDate(date: Date): string {
 	if (Number.isNaN(date.getTime()) || date.getTime() === 0) {
-		return "Unknown";
+		return UNKNOWN_DATE;
 	}
 
 	const year = date.getFullYear();
@@ -214,6 +216,7 @@ export const mapPodcastsToEpisodes = (podcasts: Podcast[]): PodcastEpisode[] => 
 			fileSize: ep.fileSize,
 			selected: false,
 			onDrive: ep.onDrive,
+			driveDate: ep.driveDate,
 		})),
 	);
 };
@@ -249,22 +252,49 @@ export function mapDriveEpisodes(
 }
 
 /**
+ * Builds the canonical show/file key used to match an episode with a file on the
+ * drive: "Show/YYYY-MM-DD - Title.mp3", mirroring formatDestPath. `date` is either a
+ * Date (formatted with formatDate, exactly as formatDestPath does) or the literal
+ * date string from a filename ("YYYY-MM-DD" or "Unknown"). An empty string yields the
+ * undated legacy key "Show/Title.mp3".
+ */
+export function driveEpisodeKey(showName: string, title: string, date: Date | string): string {
+	const dateStr = typeof date === "string" ? date : formatDate(date);
+	const prefix = dateStr ? `${dateStr} - ` : "";
+	return `${sanitizeFilename(showName)}/${prefix}${sanitizeFilename(title)}.mp3`;
+}
+
+/**
+ * Removes the " (2)", " (3)", ... suffix that SyncEngine.dedupeDestPath appends to
+ * a title. Returns the title unchanged when there is no such suffix.
+ */
+export function stripDedupeSuffix(title: string): string {
+	const match = title.match(/^(.*\S)\s\((\d+)\)$/);
+	return match && Number(match[2]) >= 2 ? (match[1] ?? title) : title;
+}
+
+/**
  * Mark episodes as being on the drive based on file path matching.
- * Matches on Show Name + Episode Title using sanitized keys for robustness.
+ * Matches on Show Name + publish date + Episode Title using sanitized keys, the same
+ * keys as DriveScan.buildDriveIndex. Drive files without a date prefix (legacy) match
+ * on show + title alone, and a " (2)" dedupe suffix on a drive title is ignored.
  */
 export function markEpisodesOnDrive(
 	macEpisodes: PodcastEpisode[],
 	driveEpisodes: PodcastEpisode[],
 ): PodcastEpisode[] {
-	// Create a set of "SanitizedShow/SanitizedTitle" keys
-	const driveSet = new Set(
-		driveEpisodes.map((e) => `${sanitizeFilename(e.showName)}/${sanitizeFilename(e.title)}`),
-	);
+	const driveSet = new Set<string>();
+	for (const e of driveEpisodes) {
+		const date = e.driveDate ?? e.published;
+		driveSet.add(driveEpisodeKey(e.showName, e.title, date));
+		const stripped = stripDedupeSuffix(e.title);
+		if (stripped !== e.title) driveSet.add(driveEpisodeKey(e.showName, stripped, date));
+	}
 
 	return macEpisodes.map((episode) => ({
 		...episode,
-		onDrive: driveSet.has(
-			`${sanitizeFilename(episode.showName)}/${sanitizeFilename(episode.title)}`,
-		),
+		onDrive:
+			driveSet.has(driveEpisodeKey(episode.showName, episode.title, episode.published)) ||
+			driveSet.has(driveEpisodeKey(episode.showName, episode.title, "")),
 	}));
 }

@@ -8,6 +8,12 @@ export interface Episode {
 	onDrive: boolean;
 	filePath: string;
 	fileSize: number;
+	/**
+	 * Drive-scan only: the date string exactly as it appears in the filename
+	 * ("YYYY-MM-DD" or "Unknown"), or "" when the file has no date prefix.
+	 * Used for drive matching so no timezone round-trip is involved.
+	 */
+	driveDate?: string;
 }
 
 export interface PodcastEpisode extends Episode {

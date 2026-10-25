@@ -6,6 +6,7 @@ import {
 	syncSuccessMessage,
 	useAppLogic,
 } from "@/hooks/useAppLogic";
+import { DriveDetection, DriveDetectionError } from "@/services/effects/DriveDetection";
 import { DriveScan, DriveScanError } from "@/services/effects/DriveScan";
 import { CleanupError, SyncEngine, SyncError } from "@/services/effects/SyncEngine";
 import type { SyncProgress } from "@/types/sync";
@@ -592,6 +593,150 @@ describe("useAppLogic free-space check", () => {
 
 		expect(executed.count).toBe(1);
 		expect(state.errorMsg).toBe("");
+	});
+});
+
+/** A DriveDetection whose free-space read the test controls; `free` is read on every call. */
+const detectionWith = (free: { value: number | "fail" }) =>
+	Layer.succeed(DriveDetection, {
+		scanDrives: () => Effect.succeed([]),
+		getDriveInfo: () => Effect.succeed(null),
+		getFreeSpace: () =>
+			free.value === "fail"
+				? Effect.fail(new DriveDetectionError({ cause: new Error("statfs failed") }))
+				: Effect.succeed(free.value),
+		isScanning: () => Effect.succeed(false),
+		driveEvents: Stream.empty,
+	});
+
+describe("useAppLogic free-space refresh", () => {
+	beforeEach(() => {
+		actions.resetState();
+		actions.setAppView("normal");
+	});
+
+	it("uses fresh free space, not the value captured at detection", async () => {
+		const executed = { count: 0 };
+		const free = { value: (2 * 1024 ** 3) as number | "fail" };
+		const logic = useAppLogic(
+			makeAppLayerWith({
+				detection: detectionWith(free),
+				scan: driveScanDouble(false),
+				sync: planEngine({ totalBytes: 2 * 1024 ** 3, executed }),
+			}),
+		);
+		// Stale: detected when the drive was nearly full.
+		const stale = { ...drive, freeSpace: 1024 ** 3 };
+		actions.setDrives([stale]);
+		actions.setCurrentDrive(stale);
+
+		logic.startSync([episode("1")]);
+		await settle();
+
+		expect(executed.count).toBe(1);
+		expect(state.errorMsg).toBe("");
+		expect(state.currentDrive?.freeSpace).toBe(2 * 1024 ** 3);
+		expect(state.drives[0]?.freeSpace).toBe(2 * 1024 ** 3);
+	});
+
+	it("refuses when fresh free space is smaller than the stale value", async () => {
+		const executed = { count: 0 };
+		const free = { value: (1024 ** 3) as number | "fail" };
+		const logic = useAppLogic(
+			makeAppLayerWith({
+				detection: detectionWith(free),
+				scan: driveScanDouble(false),
+				sync: planEngine({ totalBytes: 2 * 1024 ** 3, executed }),
+			}),
+		);
+		actions.setCurrentDrive({ ...drive, freeSpace: 16 * 1024 ** 3 });
+
+		logic.startSync([episode("1")]);
+		await settle();
+
+		expect(executed.count).toBe(0);
+		expect(state.errorMsg).toBe("Not enough space on USB: need 2.0 GB, have 1.0 GB");
+	});
+
+	it("falls back to the previous value when the refresh fails", async () => {
+		const executed = { count: 0 };
+		const free = { value: "fail" as number | "fail" };
+		const logic = useAppLogic(
+			makeAppLayerWith({
+				detection: detectionWith(free),
+				scan: driveScanDouble(false),
+				sync: planEngine({ totalBytes: 2 * 1024 ** 3, executed }),
+			}),
+		);
+		actions.setCurrentDrive({ ...drive, freeSpace: 1024 ** 3 });
+
+		logic.startSync([episode("1")]);
+		await settle();
+
+		expect(executed.count).toBe(0);
+		expect(state.errorMsg).toBe("Not enough space on USB: need 2.0 GB, have 1.0 GB");
+		expect(state.currentDrive?.freeSpace).toBe(1024 ** 3);
+	});
+
+	it("does not write free space onto a drive that is no longer current", async () => {
+		const other: Drive = { ...drive, id: "d2", name: "Other", mountPoint: "/Volumes/Other" };
+		// The user switches drives while the free-space read is in flight.
+		const switching = Layer.succeed(DriveDetection, {
+			scanDrives: () => Effect.succeed([]),
+			getDriveInfo: () => Effect.succeed(null),
+			getFreeSpace: () =>
+				Effect.sync(() => {
+					actions.setCurrentDrive(other);
+					return 5 * 1024 ** 3;
+				}),
+			isScanning: () => Effect.succeed(false),
+			driveEvents: Stream.empty,
+		});
+		const logic = useAppLogic(
+			makeAppLayerWith({ detection: switching, scan: driveScanDouble(false) }),
+		);
+		actions.setDrives([drive, other]);
+		actions.setCurrentDrive(drive);
+
+		logic.deleteSelectedFromDrive();
+		await settle();
+
+		expect(state.currentDrive?.id).toBe("d2");
+		expect(state.currentDrive?.freeSpace).toBe(other.freeSpace);
+		expect(state.drives.map((d) => d.freeSpace)).toEqual([drive.freeSpace, other.freeSpace]);
+	});
+
+	it("refreshes free space after episodes are deleted from the drive", async () => {
+		const free = { value: (9 * 1024 ** 3) as number | "fail" };
+		const logic = useAppLogic(
+			makeAppLayerWith({ detection: detectionWith(free), scan: driveScanDouble(false) }),
+		);
+		actions.setDrives([drive]);
+		actions.setCurrentDrive(drive);
+
+		logic.deleteSelectedFromDrive();
+		await settle();
+
+		expect(state.currentDrive?.freeSpace).toBe(9 * 1024 ** 3);
+		expect(state.drives[0]?.freeSpace).toBe(9 * 1024 ** 3);
+	});
+
+	it("refreshes free space after a sync completes", async () => {
+		const free = { value: (7 * 1024 ** 3) as number | "fail" };
+		const logic = useAppLogic(
+			makeAppLayerWith({
+				detection: detectionWith(free),
+				scan: driveScanDouble(false),
+				sync: emptyPlanEngine,
+			}),
+		);
+		actions.setDrives([drive]);
+		actions.setCurrentDrive(drive);
+
+		logic.startSync([episode("1")]);
+		await settle();
+
+		expect(state.currentDrive?.freeSpace).toBe(7 * 1024 ** 3);
 	});
 });
 

@@ -605,6 +605,42 @@ describe("SettingsService", () => {
 		expect(loaded.theme).toBe("Catppuccin");
 	});
 
+	it("persists both updates when two saves with different keys overlap", async () => {
+		const files = new Map<string, Uint8Array>();
+		// Reads yield (the first save's read is also its check for a missing file), so unserialised saves would both merge into the same
+		// stale snapshot and the later write would drop the earlier key.
+		const slowReads = Layer.effect(
+			FileSystem,
+			Effect.gen(function* () {
+				const base = yield* FileSystem;
+				return {
+					...base,
+					exists: (path: string) =>
+						Effect.sleep("10 millis").pipe(Effect.andThen(base.exists(path))),
+					readFile: (path: string) =>
+						Effect.sleep("10 millis").pipe(Effect.andThen(base.readFile(path))),
+				};
+			}),
+		).pipe(Layer.provide(createFileSystemTest(files)));
+
+		await Effect.runPromise(
+			Effect.provide(
+				Effect.gen(function* () {
+					const svc = yield* SettingsService;
+					yield* Effect.all(
+						[svc.saveSettings({ theme: "Nord" }), svc.saveSettings({ favoriteDrives: ["a", "b"] })],
+						{ concurrency: "unbounded" },
+					);
+				}),
+				SettingsServiceLive.pipe(Layer.provide(slowReads), Layer.provide(LoggerLive)),
+			),
+		);
+
+		const saved = JSON.parse(new TextDecoder().decode(files.get(settingsFile)));
+		expect(saved.theme).toBe("Nord");
+		expect(saved.favoriteDrives).toEqual(["a", "b"]);
+	});
+
 	it("creates a missing settings file via temp file + rename", async () => {
 		const files = new Map<string, Uint8Array>();
 		await run(

@@ -596,7 +596,7 @@ describe("DriveScan Service", () => {
 
 			// Check index has correct key
 			expect(result.size).toBe(1);
-			expect(result.has("Tech_Talk/Episode 1")).toBe(true);
+			expect(result.has("Tech_Talk/Episode_1.mp3")).toBe(true);
 		});
 	});
 
@@ -727,8 +727,8 @@ describe("DriveScan Service", () => {
 			);
 
 			expect(result.size).toBe(3);
-			expect(result.has("Tech_Talk/Episode_1.mp3")).toBe(true);
-			expect(result.has("Tech_Talk/Episode_2.mp3")).toBe(true);
+			expect(result.has("Tech_Talk/2024-01-15 - Episode_1.mp3")).toBe(true);
+			expect(result.has("Tech_Talk/2024-01-22 - Episode_2.mp3")).toBe(true);
 			expect(result.has("Tech_Talk/InvalidDate_-_Episode_3.mp3")).toBe(true);
 		});
 
@@ -761,7 +761,7 @@ describe("DriveScan Service", () => {
 		it("buildExpectedDrivePath formats destination path correctly", async () => {
 			const program = Effect.gen(function* () {
 				const matcher = yield* EpisodeMatcher;
-				return matcher.buildExpectedDrivePath("Tech Talk", "Episode 1: Intro");
+				return matcher.buildExpectedDrivePath("Tech Talk", "Episode 1: Intro", "");
 			});
 
 			const result = await Effect.runPromise(Effect.provide(program, EpisodeMatcherLive));
@@ -779,33 +779,37 @@ describe("DriveScan Service", () => {
 				]);
 
 				// 1. Path match
-				const match1 = matcher.matchEpisode("Tech Talk", { title: "Episode 1" }, driveIndex);
+				const match1 = matcher.matchEpisode(
+					"Tech Talk",
+					{ published: new Date(0), title: "Episode 1" },
+					driveIndex,
+				);
 
 				// 2. Size match (same show)
 				const match2 = matcher.matchEpisode(
 					"Tech Talk",
-					{ title: "Episode 2", fileSize: 2000 },
+					{ published: new Date(0), title: "Episode 2", fileSize: 2000 },
 					driveIndex,
 				);
 
 				// 3. Duration match (within 2% tolerance, same show)
 				const match3 = matcher.matchEpisode(
 					"Tech Talk",
-					{ title: "Episode 3", duration: 303 }, // 303 vs 300 is 1% diff
+					{ published: new Date(0), title: "Episode 3", duration: 303 }, // 303 vs 300 is 1% diff
 					driveIndex,
 				);
 
 				// 4. Same size/duration but different show should NOT match
 				const match4 = matcher.matchEpisode(
 					"Other Show",
-					{ title: "Episode 4", fileSize: 1000, duration: 100 },
+					{ published: new Date(0), title: "Episode 4", fileSize: 1000, duration: 100 },
 					driveIndex,
 				);
 
 				// 5. Duration match outside tolerance (e.g. 310s for 300s) should NOT match
 				const match5 = matcher.matchEpisode(
 					"Tech Talk",
-					{ title: "Episode 5", duration: 310 }, // 310 vs 300 is > 3% diff
+					{ published: new Date(0), title: "Episode 5", duration: 310 }, // 310 vs 300 is > 3% diff
 					driveIndex,
 				);
 

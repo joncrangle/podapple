@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Context, Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, Option, Semaphore } from "effect";
 import { FileSystem } from "@/services/effects/FileSystem";
 import { Logger } from "@/services/effects/Logger";
 
@@ -35,6 +35,10 @@ export const SettingsServiceLive = Layer.effect(
 	Effect.gen(function* () {
 		const fs = yield* FileSystem;
 		const logger = yield* Logger;
+		// saveSettings is a read-modify-write of one file. Serialize it so
+		// overlapping saves (a theme change racing a favorite toggle) cannot
+		// each merge into the same stale snapshot and lose one update.
+		const saveLock = yield* Semaphore.make(1);
 
 		const DEFAULTS: Settings = { theme: "Catppuccin", favoriteDrives: [] };
 
@@ -84,34 +88,39 @@ export const SettingsServiceLive = Layer.effect(
 		});
 
 		const saveSettings = (newSettings: Partial<Settings>) =>
-			Effect.gen(function* () {
-				yield* logger.debug(`Saving settings to: ${SETTINGS_FILE}`);
-				// Strict read: if the file exists but is unreadable/corrupt, fail rather
-				// than overwrite the user's (possibly hand-edited) settings with defaults.
-				const current = yield* readSettings;
-				const mergedSettings = { ...(Option.getOrUndefined(current) ?? DEFAULTS), ...newSettings };
+			saveLock.withPermits(1)(
+				Effect.gen(function* () {
+					yield* logger.debug(`Saving settings to: ${SETTINGS_FILE}`);
+					// Strict read: if the file exists but is unreadable/corrupt, fail rather
+					// than overwrite the user's (possibly hand-edited) settings with defaults.
+					const current = yield* readSettings;
+					const mergedSettings = {
+						...(Option.getOrUndefined(current) ?? DEFAULTS),
+						...newSettings,
+					};
 
-				const dirExists = yield* fs.exists(SETTINGS_DIR);
-				if (!dirExists) {
-					yield* logger.debug(`Creating settings directory: ${SETTINGS_DIR}`);
-					yield* fs.mkdir(SETTINGS_DIR);
-				}
-				const settingsWithSchema = {
-					$schema: SCHEMA_URL,
-					...mergedSettings,
-				};
-				const data = new TextEncoder().encode(JSON.stringify(settingsWithSchema, null, 2));
-				// Write to a temp file and rename so a crash mid-write never leaves a
-				// truncated settings file behind.
-				const tmpFile = `${SETTINGS_FILE}.${process.pid}.tmp`;
-				yield* fs.writeFile(tmpFile, data);
-				yield* fs
-					.rename(tmpFile, SETTINGS_FILE)
-					.pipe(Effect.tapError(() => fs.remove(tmpFile).pipe(Effect.ignore)));
-				yield* logger.info("Settings saved successfully");
-			}).pipe(
-				Effect.tapError((err) => logger.error("Failed to save settings", err)),
-				Effect.mapError((err) => new Error(`Failed to save settings: ${err}`)),
+					const dirExists = yield* fs.exists(SETTINGS_DIR);
+					if (!dirExists) {
+						yield* logger.debug(`Creating settings directory: ${SETTINGS_DIR}`);
+						yield* fs.mkdir(SETTINGS_DIR);
+					}
+					const settingsWithSchema = {
+						$schema: SCHEMA_URL,
+						...mergedSettings,
+					};
+					const data = new TextEncoder().encode(JSON.stringify(settingsWithSchema, null, 2));
+					// Write to a temp file and rename so a crash mid-write never leaves a
+					// truncated settings file behind.
+					const tmpFile = `${SETTINGS_FILE}.${process.pid}.tmp`;
+					yield* fs.writeFile(tmpFile, data);
+					yield* fs
+						.rename(tmpFile, SETTINGS_FILE)
+						.pipe(Effect.tapError(() => fs.remove(tmpFile).pipe(Effect.ignore)));
+					yield* logger.info("Settings saved successfully");
+				}).pipe(
+					Effect.tapError((err) => logger.error("Failed to save settings", err)),
+					Effect.mapError((err) => new Error(`Failed to save settings: ${err}`)),
+				),
 			);
 
 		return SettingsService.of({

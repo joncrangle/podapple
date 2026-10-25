@@ -5,6 +5,7 @@
  * Uses Bun.spawn for native process execution and parsing of 'diskutil activity'.
  */
 
+import { statfs } from "node:fs/promises";
 import { Context, Data, Effect, Layer, Option, Ref, Result, Stream } from "effect";
 import type { Drive } from "@/types/drive";
 import {
@@ -34,6 +35,8 @@ export class DriveDetection extends Context.Service<
 		readonly scanDrives: () => Effect.Effect<Drive[], DriveDetectionError>;
 		/** Gets detailed information for a specific drive by its mount point */
 		readonly getDriveInfo: (mountPoint: string) => Effect.Effect<Drive | null, DriveDetectionError>;
+		/** Reads the bytes currently available to the user at a mount point (cheap; no diskutil) */
+		readonly getFreeSpace: (mountPoint: string) => Effect.Effect<number, DriveDetectionError>;
 		/** Checks if a background activity scan is currently active */
 		readonly isScanning: () => Effect.Effect<boolean, never>;
 		/** A stream of drive appearance and disappearance events */
@@ -270,7 +273,10 @@ export const DriveDetectionLive = Layer.effect(
 					try: async () => {
 						const glob = new Bun.Glob("*");
 						const names: string[] = [];
-						for await (const name of glob.scan({ cwd: "/Volumes", onlyFiles: false })) {
+						for await (const name of glob.scan({
+							cwd: "/Volumes",
+							onlyFiles: false,
+						})) {
 							if (!EXCLUDED_NAMES.has(name)) {
 								names.push(name);
 							}
@@ -289,6 +295,17 @@ export const DriveDetectionLive = Layer.effect(
 
 		const getDriveInfo = (mountPoint: string) =>
 			getDriveDetails(mountPoint, logger).pipe(Effect.map((opt) => Option.getOrNull(opt)));
+
+		const getFreeSpace = (mountPoint: string) =>
+			Effect.tryPromise({
+				try: async () => {
+					const stats = await statfs(mountPoint);
+					const free = Number(stats.bavail) * Number(stats.bsize);
+					if (!Number.isFinite(free) || free < 0) throw new Error("statfs reported no free space");
+					return free;
+				},
+				catch: (cause) => new DriveDetectionError({ cause }),
+			});
 
 		const driveEvents = Stream.unwrap(
 			Effect.gen(function* () {
@@ -433,6 +450,7 @@ export const DriveDetectionLive = Layer.effect(
 			isScanning: () => Ref.get(scanningRef),
 			scanDrives,
 			getDriveInfo,
+			getFreeSpace,
 			driveEvents,
 		});
 	}),
@@ -450,5 +468,13 @@ export const createDriveDetectionTest = (
 		scanDrives: () => Effect.succeed(drives),
 		getDriveInfo: (mountPoint) =>
 			Effect.succeed(drives.find((d) => d.mountPoint === mountPoint) ?? null),
+		getFreeSpace: (mountPoint) =>
+			Effect.succeed(drives.find((d) => d.mountPoint === mountPoint)?.freeSpace ?? -1).pipe(
+				Effect.flatMap((free) =>
+					free >= 0
+						? Effect.succeed(free)
+						: Effect.fail(new DriveDetectionError({ cause: "unknown" })),
+				),
+			),
 		driveEvents: events,
 	});
