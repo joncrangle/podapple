@@ -24,7 +24,8 @@ self.onmessage = (event: MessageEvent) => {
 			const rows = yield* Effect.try({
 				try: () => {
 					const db = new Database(dbPath, { readonly: true });
-					const query = `
+					try {
+						const query = `
             SELECT
               e.Z_PK as id,
               e.ZTITLE as title,
@@ -38,9 +39,10 @@ self.onmessage = (event: MessageEvent) => {
             WHERE e.ZASSETURL IS NOT NULL
             ORDER BY e.ZPUBDATE DESC
           `;
-					const results = db.query(query).all() as EpisodeRow[];
-					db.close();
-					return results;
+						return db.query(query).all() as EpisodeRow[];
+					} finally {
+						db.close();
+					}
 				},
 				catch: (error) => (error instanceof Error ? error : new Error(String(error))),
 			});

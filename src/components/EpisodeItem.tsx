@@ -4,6 +4,8 @@ import type { PodcastEpisode } from "@/types/podcast";
 import { getEpisodeDescription, getEpisodeTitle } from "@/utils/formatting";
 
 export interface EpisodeItemProps {
+	id?: string;
+	onLayout?: () => void;
 	episode: PodcastEpisode;
 	isSelected: boolean;
 	isFocused: boolean;
@@ -41,6 +43,8 @@ export function EpisodeItem(props: EpisodeItemProps) {
 
 	return (
 		<box
+			id={props.id}
+			onSizeChange={props.onLayout}
 			flexDirection='column'
 			border={["left"]}
 			borderStyle={borderStyle()}

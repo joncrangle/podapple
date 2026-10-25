@@ -168,4 +168,80 @@ describe("Plist Parser", () => {
 			expect(getPlistBoolean(dict, "Missing")).toBeUndefined();
 		});
 	});
+
+	describe("hardening", () => {
+		const wrap = (body: string) => `<plist version="1.0">${body}</plist>`;
+		const parse = (body: string) => Result.getOrThrow(parsePlist(wrap(body))) as PlistDict;
+
+		it("does not double-decode entities", () => {
+			const dict = parse("<dict><key>K</key><string>&amp;lt; &amp;amp; &amp;#65;</string></dict>");
+			expect(dict.K).toBe("&lt; &amp; &#65;");
+		});
+
+		it("decodes the named entities", () => {
+			const dict = parse(
+				"<dict><key>K</key><string>a &lt;b&gt; &amp; &quot;c&quot; &apos;d&apos;</string></dict>",
+			);
+			expect(dict.K).toBe("a <b> & \"c\" 'd'");
+		});
+
+		it("decodes decimal and hex numeric entities", () => {
+			const dict = parse("<dict><key>K</key><string>&#65;&#x42;&#x1F600;</string></dict>");
+			expect(dict.K).toBe("AB\u{1F600}");
+		});
+
+		it("leaves out-of-range numeric entities as written", () => {
+			const dict = parse("<dict><key>K</key><string>&#x110000;&#xD800;</string></dict>");
+			expect(dict.K).toBe("&#x110000;&#xD800;");
+		});
+
+		it("decodes entities at the top level too", () => {
+			expect(Result.getOrThrow(parsePlist(wrap("<string>&amp;lt;</string>")))).toBe("&lt;");
+		});
+
+		it("parses reals with exponents and signs", () => {
+			const dict = parse(
+				"<dict><key>A</key><real>1.5e3</real><key>B</key><real>-2E-2</real><key>C</key><real>+4</real><key>D</key><real>.5</real><key>E</key><real>3.</real></dict>",
+			);
+			expect(dict.A).toBe(1500);
+			expect(dict.B).toBe(-0.02);
+			expect(dict.C).toBe(4);
+			expect(dict.D).toBe(0.5);
+			expect(dict.E).toBe(3);
+		});
+
+		it("parses a top-level real with an exponent", () => {
+			expect(Result.getOrThrow(parsePlist(wrap("<real>1e2</real>")))).toBe(100);
+		});
+
+		it("skips one unparseable value without dropping the remaining keys", () => {
+			const dict = parse(
+				"<dict><key>Before</key><string>x</string><key>Bad</key><weird>?</weird><key>After</key><integer>7</integer><key>Last</key><true/></dict>",
+			);
+			expect(dict.Before).toBe("x");
+			expect("Bad" in dict).toBe(false);
+			expect(dict.After).toBe(7);
+			expect(dict.Last).toBe(true);
+		});
+
+		it("skips an unparseable final value", () => {
+			const dict = parse("<dict><key>A</key><integer>1</integer><key>Bad</key><weird/></dict>");
+			expect(dict).toEqual({ A: 1 });
+		});
+
+		it("parses self-closing strings as empty", () => {
+			const dict = parse(
+				"<dict><key>A</key><string/><key>B</key><string /><key>C</key><integer>1</integer></dict>",
+			);
+			expect(dict.A).toBe("");
+			expect(dict.B).toBe("");
+			expect(dict.C).toBe(1);
+			expect(Result.getOrThrow(parsePlist(wrap("<string/>")))).toBe("");
+		});
+
+		it("parses self-closing strings inside arrays", () => {
+			const arr = Result.getOrThrow(parsePlist(wrap("<array><string/><string>a</string></array>")));
+			expect(arr).toEqual(["", "a"]);
+		});
+	});
 });

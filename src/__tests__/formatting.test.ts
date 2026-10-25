@@ -81,6 +81,41 @@ describe("Formatting Utils", () => {
 			expect(sanitizeFilename("")).toBe("untitled");
 			expect(sanitizeFilename("   ")).toBe("untitled");
 		});
+
+		test("never returns a directory reference", () => {
+			for (const name of [".", "..", "...", " .. "]) {
+				const out = sanitizeFilename(name);
+				expect(out).not.toMatch(/^\.+$/);
+				expect(out.length).toBeGreaterThan(0);
+			}
+			expect(sanitizeFilename(".")).toBe("_");
+			expect(sanitizeFilename("..")).toBe("_");
+			// Dots inside a real name are untouched.
+			expect(sanitizeFilename("Wait...")).toBe("Wait...");
+		});
+
+		test("does not split a surrogate pair when truncating", () => {
+			// 99 ASCII chars then an emoji (2 UTF-16 units): a unit-based slice(0, 100)
+			// would keep only the high surrogate.
+			const out = sanitizeFilename(`${"a".repeat(99)}😀tail`);
+			expect(out).toBe(`${"a".repeat(99)}😀`);
+			expect(Array.from(out).length).toBe(100);
+			expect(out.isWellFormed()).toBe(true);
+		});
+
+		test("truncates by code point, not UTF-16 unit", () => {
+			const out = sanitizeFilename("😀".repeat(150));
+			expect(Array.from(out).length).toBe(100);
+			expect(out.isWellFormed()).toBe(true);
+		});
+
+		test("NFC-normalizes so HFS+ (NFD) and NFC names produce the same key", () => {
+			const nfc = "Caf\u00e9";
+			const nfd = "Cafe\u0301";
+			expect(nfc).not.toBe(nfd);
+			expect(sanitizeFilename(nfd)).toBe(sanitizeFilename(nfc));
+			expect(sanitizeFilename(nfd)).toBe(nfc);
+		});
 	});
 
 	describe("cleanFileUrl", () => {

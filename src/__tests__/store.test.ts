@@ -122,4 +122,37 @@ describe("store actions", () => {
 		expect(state.transferProgress.filesDone).toBe(0);
 		expect(state.favoriteDrives).toEqual([]);
 	});
+
+	it("clamps macIndex when the Mac list shrinks", () => {
+		actions.resetState();
+		actions.setMacPodcasts([{ id: "1" }, { id: "2" }, { id: "3" }] as PodcastEpisode[]);
+		actions.setMacIndex(2);
+
+		actions.setMacPodcasts([{ id: "1" }] as PodcastEpisode[]);
+		expect(state.macIndex).toBe(0);
+
+		actions.setMacPodcasts([]);
+		expect(state.macIndex).toBe(0);
+	});
+
+	it("clamps driveIndex when the drive list shrinks", () => {
+		actions.resetState();
+		actions.setDrivePodcasts([{ id: "1" }, { id: "2" }, { id: "3" }] as PodcastEpisode[]);
+		actions.setDriveIndex(2);
+
+		actions.setDrivePodcasts([{ id: "1" }, { id: "2" }] as PodcastEpisode[]);
+		expect(state.driveIndex).toBe(1);
+
+		actions.setDrivePodcasts([]);
+		expect(state.driveIndex).toBe(0);
+	});
+
+	it("leaves an in-range index alone when a list is replaced", () => {
+		actions.resetState();
+		actions.setMacPodcasts([{ id: "1" }, { id: "2" }, { id: "3" }] as PodcastEpisode[]);
+		actions.setMacIndex(1);
+
+		actions.setMacPodcasts((prev) => prev.map((ep) => ({ ...ep })));
+		expect(state.macIndex).toBe(1);
+	});
 });

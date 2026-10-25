@@ -33,9 +33,16 @@ export function formatBytes(rawBytes: number): string {
 	return `${value.toFixed(1)} ${BYTES_UNITS[unitIndex]}`;
 }
 
+/** Maximum length of a sanitized name, in code points. */
+const MAX_FILENAME_LENGTH = 100;
+
 /**
  * Helper to sanitize filenames for FAT32 compatibility.
  * Replaces invalid characters with dashes and normalizes spaces.
+ *
+ * The result is NFC-normalized. HFS+ hands back NFD names from readdir while
+ * Podcasts.app metadata is typically NFC, so keys built from the two sides only
+ * match if both are normalized to the same form.
  */
 export function sanitizeFilename(name: string): string {
 	if (!name || name.trim().length === 0) {
@@ -44,7 +51,7 @@ export function sanitizeFilename(name: string): string {
 
 	// Replace invalid chars with -
 	// < > : " / \ | ? *
-	let sanitized = name.replace(/[<>:"/\\|?*]/g, "-");
+	let sanitized = name.normalize("NFC").replace(/[<>:"/\\|?*]/g, "-");
 
 	sanitized = sanitized.replace(/&/g, "and");
 	sanitized = sanitized.replace(/'/g, "");
@@ -54,12 +61,19 @@ export function sanitizeFilename(name: string): string {
 		return "untitled";
 	}
 
-	// Truncate to 100 chars (FAT32 limit is higher but this is safe)
-	if (sanitized.length > 100) {
-		sanitized = sanitized.slice(0, 100);
+	// Truncate by code point: slicing UTF-16 units can cut a surrogate pair in
+	// half and leave a lone surrogate, which is not a valid filename.
+	const codePoints = Array.from(sanitized);
+	if (codePoints.length > MAX_FILENAME_LENGTH) {
+		sanitized = codePoints.slice(0, MAX_FILENAME_LENGTH).join("");
 	}
 
-	return sanitized;
+	// "." and ".." (or any run of dots) are directory references, not names.
+	if (/^\.+$/.test(sanitized)) {
+		return "_";
+	}
+
+	return sanitized.normalize("NFC");
 }
 
 /**

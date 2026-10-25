@@ -83,13 +83,50 @@ export function formatDestPath(
 }
 
 /**
- * Copies a file using node:fs handles and emits the number of bytes written in chunks.
- * Cleans up partial files on failure or interruption.
+ * Makes destination paths unique within one plan. Two episodes can sanitize to the
+ * same path (same show/title/date, or truncated names), and the second copy would
+ * overwrite the first. The later one gets " (2)", " (3)", ... before the extension.
+ * Comparison is case-insensitive because the drive filesystems (FAT/exFAT/APFS)
+ * usually are. Deterministic: depends only on input order.
+ */
+export function dedupeDestPath(destPath: string, extension: string, used: Set<string>): string {
+	const base =
+		extension && destPath.endsWith(extension) ? destPath.slice(0, -extension.length) : destPath;
+	const ext = base === destPath ? "" : extension;
+	let candidate = destPath;
+	let n = 2;
+	while (used.has(candidate.toLowerCase())) {
+		candidate = `${base} (${n})${ext}`;
+		n += 1;
+	}
+	used.add(candidate.toLowerCase());
+	return candidate;
+}
+
+/** Only MP3 carries ID3; tagging anything else (e.g. .m4a) would corrupt it. */
+const isMp3 = (path: string): boolean => path.toLowerCase().endsWith(".mp3");
+
+/** Best-effort removal of a leftover file; never fails. */
+const removeQuietly = (path: string): Effect.Effect<void> =>
+	Effect.tryPromise(() => fs.rm(path, { force: true })).pipe(Effect.catch(() => Effect.void));
+
+/** In-progress copies live at `${dest}.part` and are renamed into place once complete. */
+const partPathOf = (dest: string): string => `${dest}.part`;
+
+/**
+ * Copies `src` to `${dest}.part` using node:fs handles and emits the number of bytes
+ * written in chunks. The caller owns the finished .part file (tag it, then rename it
+ * to `dest`), which is why a final file on the drive is complete by construction.
+ * The .part is removed on failure or interruption of the copy itself, and any stale
+ * one from an earlier crashed run is removed before copying.
  */
 const copyFileStream = (src: string, dest: string): Stream.Stream<number, SyncCopyError> =>
 	Stream.scoped(
 		Stream.unwrap(
 			Effect.gen(function* () {
+				const partPath = partPathOf(dest);
+				let finished = false;
+
 				const srcHandle = yield* Effect.acquireRelease(
 					Effect.tryPromise({
 						try: () => fs.open(src, "r"),
@@ -98,25 +135,20 @@ const copyFileStream = (src: string, dest: string): Stream.Stream<number, SyncCo
 					(handle) => Effect.promise(() => handle.close()),
 				);
 
+				yield* removeQuietly(partPath);
+
 				const destHandle = yield* Effect.acquireRelease(
 					Effect.tryPromise({
-						try: () => fs.open(dest, "w"),
+						try: () => fs.open(partPath, "w"),
 						catch: (cause) => new SyncCopyError({ src, dest, cause }),
 					}),
 					(handle) =>
 						Effect.gen(function* () {
 							yield* Effect.promise(() => handle.close());
-							// Check if we were interrupted or failed before finishing
-							const stat = yield* Effect.tryPromise(() => fs.stat(dest)).pipe(
-								Effect.catch(() => Effect.succeed(null)),
-							);
-							const srcStat = yield* Effect.tryPromise(() => fs.stat(src)).pipe(
-								Effect.catch(() => Effect.succeed(null)),
-							);
-							if (stat && srcStat && stat.size < srcStat.size) {
-								yield* Effect.tryPromise(() => fs.unlink(dest)).pipe(
-									Effect.catch(() => Effect.void),
-								);
+							// Failed or interrupted before the source was fully read: drop the
+							// partial. Nothing ever appears at `dest` until the caller renames.
+							if (!finished) {
+								yield* removeQuietly(partPath);
 							}
 						}),
 				);
@@ -129,7 +161,10 @@ const copyFileStream = (src: string, dest: string): Stream.Stream<number, SyncCo
 						catch: (cause) => new SyncCopyError({ src, dest, cause }),
 					}).pipe(
 						Effect.flatMap(({ bytesRead }): Effect.Effect<number, SyncCopyError | Cause.Done> => {
-							if (bytesRead === 0) return Cause.done();
+							if (bytesRead === 0) {
+								finished = true;
+								return Cause.done();
+							}
 							return Effect.tryPromise({
 								try: () => destHandle.write(buffer.subarray(0, bytesRead)),
 								catch: (cause) => new SyncCopyError({ src, dest, cause }),
@@ -171,6 +206,7 @@ export const SyncEngineLive = Layer.effect(
 						podcast: (typeof mac)[number];
 						fullDestPath: string;
 					}> = [];
+					const usedDestPaths = new Set<string>();
 
 					for (const podcast of mac) {
 						for (const episode of podcast.episodes) {
@@ -178,12 +214,12 @@ export const SyncEngineLive = Layer.effect(
 							if (matcher.matchEpisode(podcast.title, episode, driveIndex)) continue;
 
 							const ext = fs.getExtension(episode.filePath);
-							const fullDestPath = formatDestPath(
-								drivePath,
-								podcast.title,
-								episode.title,
-								episode.published,
+							// Deduped before the existence check so the " (2)" assignment is
+							// stable across runs, whatever is already on the drive.
+							const fullDestPath = dedupeDestPath(
+								formatDestPath(drivePath, podcast.title, episode.title, episode.published, ext),
 								ext,
+								usedDestPaths,
 							);
 							candidates.push({ episode, podcast, fullDestPath });
 						}
@@ -193,10 +229,22 @@ export const SyncEngineLive = Layer.effect(
 						candidates,
 						({ episode, podcast, fullDestPath }) =>
 							Effect.gen(function* () {
+								// getFileSize yields 0 for a missing/unreadable file. Planning such
+								// an item would fail the whole execute stream at copy time.
+								const sSize = yield* fs.getFileSize(episode.filePath);
+								if (sSize <= 0) {
+									yield* logger.info(
+										`Warning: skipping "${episode.title}", source is missing or empty: ${episode.filePath}`,
+									);
+									return Option.none();
+								}
+
+								// Copies land at `${dest}.part` and are renamed into place only once
+								// complete (and tagged), so any non-empty file at the final path is
+								// whole. Do not compare sizes: ID3 tagging legitimately changes them.
 								const dSize = yield* fs.getFileSize(fullDestPath);
 								if (dSize > 0) return Option.none();
 
-								const sSize = yield* fs.getFileSize(episode.filePath);
 								return Option.some({
 									episode,
 									podcast,
@@ -214,7 +262,12 @@ export const SyncEngineLive = Layer.effect(
 							totalBytes += opt.value.size;
 						}
 					}
-					const plan: SyncPlan = { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes };
+					const plan: SyncPlan = {
+						toCopy,
+						toDelete: [],
+						totalFiles: toCopy.length,
+						totalBytes,
+					};
 					yield* logger.info(
 						`Sync plan created: ${plan.totalFiles} files to copy, ${plan.totalBytes} bytes total`,
 					);
@@ -248,7 +301,7 @@ export const SyncEngineLive = Layer.effect(
 									status: "syncing",
 								});
 
-								const copyFlow = Stream.fromEffect(
+								const copyOnly = Stream.fromEffect(
 									Effect.gen(function* () {
 										yield* logger.debug(
 											`Starting copy of [${i + 1}/${plan.totalFiles}]: ${item.episode.title}`,
@@ -274,71 +327,98 @@ export const SyncEngineLive = Layer.effect(
 											}),
 										),
 									),
-									Stream.concat(
-										Stream.fromEffect(
-											Effect.sync((): SyncProgress => ({
-												// Emit a progress update to show we are tagging
-												currentFile: `Tagging: ${item.episode.title}`,
-												currentIndex: i + 1,
-												totalFiles: plan.totalFiles,
-												bytesTransferred: bytesWritten,
-												totalBytes: plan.totalBytes,
-												discarded,
-												startTime,
-												status: "syncing",
-											})),
-										),
-									),
-									Stream.concat(
-										Stream.fromEffect(
-											Effect.gen(function* () {
-												const metadataEditor = yield* MetadataEditor;
-												const fs = yield* FileSystem;
-												yield* logger.debug(`Tagging episode: ${item.episode.title}`);
-												yield* metadataEditor
-													.write(item.destPath, {
-														title: item.episode.title,
-														artist: item.podcast.author,
-														album: item.podcast.title,
-														genre: "Podcast",
-														year: item.episode.published.getFullYear().toString(),
-														comment: `Published: ${item.episode.published.toISOString().split("T")[0]}`,
-													})
-													.pipe(
-														Effect.tap(() =>
-															logger.debug(`Successfully tagged: ${item.episode.title}`),
-														),
-														// A failed tag never fails the sync, but the copied file would linger
-														// half-tagged on the drive, so discard it and let the next run re-copy.
-														Effect.tapError((err) =>
-															logger.error(
-																`Failed to tag: ${item.episode.title}, discarding copied file: ${item.destPath}`,
-																err,
-															),
-														),
-														Effect.catch(() =>
-															Effect.suspend(() => {
-																// Count it even if the unlink itself fails — either way
-																// the file did not make it onto the drive correctly.
-																discarded += 1;
-																return fs.remove(item.destPath).pipe(
-																	// createPlan skips any dest path that exists, so a
-																	// leftover here is never re-copied. Worth a line.
-																	Effect.tapError((err) =>
-																		logger.error(
-																			`Failed to discard untagged file: ${item.destPath}`,
-																			err,
-																		),
-																	),
-																	Effect.catch(() => Effect.void),
-																);
-															}),
-														),
-													);
-											}),
-										).pipe(Stream.filterMap(() => Result.fail(undefined))),
-									),
 								);
+
+								const partPath = partPathOf(item.destPath);
+
+								// Moves the finished .part into place. Any failure or interruption
+								// here drops the .part so nothing half-done is left on the drive.
+								const finalize = Effect.gen(function* () {
+									const fs = yield* FileSystem;
+									yield* fs.rename(partPath, item.destPath);
+								}).pipe(Effect.onError(() => removeQuietly(partPath)));
+
+								// Only MP3s carry ID3. Tagging .m4a etc. prepends an ID3 block and
+								// corrupts the file, so those are copied untouched.
+								const copyFlow = !isMp3(item.destPath)
+									? copyOnly.pipe(Stream.concat(Stream.fromEffect(finalize).pipe(Stream.drain)))
+									: copyOnly.pipe(
+											Stream.concat(
+												Stream.fromEffect(
+													Effect.sync((): SyncProgress => ({
+														// Emit a progress update to show we are tagging
+														currentFile: `Tagging: ${item.episode.title}`,
+														currentIndex: i + 1,
+														totalFiles: plan.totalFiles,
+														bytesTransferred: bytesWritten,
+														totalBytes: plan.totalBytes,
+														discarded,
+														startTime,
+														status: "syncing",
+													})),
+												),
+											),
+											Stream.concat(
+												Stream.fromEffect(
+													Effect.gen(function* () {
+														const metadataEditor = yield* MetadataEditor;
+														const fs = yield* FileSystem;
+														yield* logger.debug(`Tagging episode: ${item.episode.title}`);
+														// Tag the .part so the final path only ever holds a finished file.
+														const tagged = yield* metadataEditor
+															.write(partPath, {
+																title: item.episode.title,
+																artist: item.podcast.author,
+																album: item.podcast.title,
+																genre: "Podcast",
+																// An invalid Date makes toISOString throw (a defect that
+																// would kill the stream), so omit date-derived tags.
+																...(Number.isNaN(item.episode.published.getTime())
+																	? {}
+																	: {
+																			year: item.episode.published.getFullYear().toString(),
+																			comment: `Published: ${item.episode.published.toISOString().split("T")[0]}`,
+																		}),
+															})
+															.pipe(
+																Effect.tap(() =>
+																	logger.debug(`Successfully tagged: ${item.episode.title}`),
+																),
+																Effect.as(true),
+																// A failed tag never fails the sync, but a half-tagged file must
+																// not reach the drive, so discard the .part and let the next
+																// run re-copy.
+																Effect.tapError((err) =>
+																	logger.error(
+																		`Failed to tag: ${item.episode.title}, discarding copied file: ${item.destPath}`,
+																		err,
+																	),
+																),
+																Effect.catch(() =>
+																	Effect.suspend(() => {
+																		// Count it even if the removal itself fails: either way
+																		// the file did not make it onto the drive correctly.
+																		discarded += 1;
+																		return fs.remove(partPath).pipe(
+																			Effect.tapError((err) =>
+																				logger.error(
+																					`Failed to discard untagged file: ${partPath}`,
+																					err,
+																				),
+																			),
+																			Effect.catch(() => Effect.void),
+																			Effect.as(false),
+																		);
+																	}),
+																),
+																// Interrupted mid-tag: do not leave the .part behind.
+																Effect.onInterrupt(() => removeQuietly(partPath)),
+															);
+														if (tagged) yield* finalize;
+													}),
+												).pipe(Stream.filterMap(() => Result.fail(undefined))),
+											),
+										);
 
 								return Stream.concat(initialProgress, copyFlow);
 							}),
@@ -378,6 +458,9 @@ export const SyncEngineLive = Layer.effect(
 						),
 						Stream.runDrain,
 					);
+					yield* fs
+						.rename(partPathOf(dest), dest)
+						.pipe(Effect.onError(() => removeQuietly(partPathOf(dest))));
 				}),
 
 			cleanup: (drivePath) =>
@@ -447,7 +530,12 @@ export const createSyncEngineTest = (mockFiles: Map<string, Uint8Array> = new Ma
 						totalBytes += sSize;
 					}
 				}
-				return { toCopy, toDelete: [], totalFiles: toCopy.length, totalBytes } satisfies SyncPlan;
+				return {
+					toCopy,
+					toDelete: [],
+					totalFiles: toCopy.length,
+					totalBytes,
+				} satisfies SyncPlan;
 			}),
 		execute: (plan) => {
 			const startTime = Date.now();

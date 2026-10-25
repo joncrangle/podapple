@@ -197,6 +197,63 @@ export function parseActivityLine(
 	return Option.none();
 }
 
+const DEBOUNCE_MS = 1000;
+
+/**
+ * Turns one parsed `diskutil activity` event into a DriveEvent, or none.
+ *
+ * Events for the same drive within DEBOUNCE_MS of the last *emitted* event are
+ * dropped. The timestamp is only recorded when an event is actually emitted: a
+ * DiskAppeared that arrives before the volume is mounted yields nothing, and
+ * must not swallow the VolumeMount that follows it moments later.
+ */
+export const processActivityEvent = (
+	event: { type: "Appeared" | "Disappeared"; bsdName: string },
+	state: {
+		readonly driveIdMap: Ref.Ref<Map<string, string>>;
+		readonly lastEventTimeMap: Ref.Ref<Map<string, number>>;
+	},
+	getDetails: (bsdName: string) => Effect.Effect<Option.Option<Drive>>,
+	logger: Logger["Service"],
+	now: number,
+): Effect.Effect<Option.Option<DriveEvent>> =>
+	Effect.gen(function* () {
+		const { driveIdMap, lastEventTimeMap } = state;
+		const map = yield* Ref.get(driveIdMap);
+
+		const lastTime = (yield* Ref.get(lastEventTimeMap)).get(event.bsdName) ?? 0;
+		if (now - lastTime < DEBOUNCE_MS) {
+			return Option.none<DriveEvent>();
+		}
+		const recordEmitted = Ref.update(lastEventTimeMap, (m) => new Map(m).set(event.bsdName, now));
+
+		if (event.type === "Appeared") {
+			const details = yield* getDetails(event.bsdName);
+			if (Option.isSome(details)) {
+				const drive = details.value;
+				yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
+				yield* recordEmitted;
+				yield* logger.info(`Drive appeared/changed: ${drive.name} (${drive.id})`);
+				return Option.some<DriveEvent>({ _tag: "Appeared", drive });
+			}
+			return Option.none<DriveEvent>();
+		}
+
+		// Disappeared
+		const driveId = map.get(event.bsdName);
+		if (driveId) {
+			yield* Ref.update(driveIdMap, (m) => {
+				const newMap = new Map(m);
+				newMap.delete(event.bsdName);
+				return newMap;
+			});
+			yield* recordEmitted;
+			yield* logger.info(`Drive disappeared: ${driveId}`);
+			return Option.some<DriveEvent>({ _tag: "Disappeared", driveId });
+		}
+		return Option.none<DriveEvent>();
+	});
+
 /**
  * Live implementation of DriveDetection using macOS diskutil activity and info.
  */
@@ -295,41 +352,13 @@ export const DriveDetectionLive = Layer.effect(
 							),
 							Stream.tap((event) => logger.debug(`diskutil event: ${event.type} ${event.bsdName}`)),
 							Stream.mapEffect((event) =>
-								Effect.gen(function* () {
-									const map = yield* Ref.get(driveIdMap);
-									const now = Date.now();
-
-									// Debounce events for the same drive to prevent rapid successive reads
-									const lastTime = (yield* Ref.get(lastEventTimeMap)).get(event.bsdName) ?? 0;
-									if (now - lastTime < 1000) {
-										return Option.none();
-									}
-									yield* Ref.update(lastEventTimeMap, (m) => new Map(m).set(event.bsdName, now));
-
-									if (event.type === "Appeared") {
-										const details = yield* getDriveDetails(event.bsdName, logger);
-										if (Option.isSome(details)) {
-											const drive = details.value;
-											yield* Ref.update(driveIdMap, (m) => new Map(m).set(event.bsdName, drive.id));
-											yield* logger.info(`Drive appeared/changed: ${drive.name} (${drive.id})`);
-											return Option.some({ _tag: "Appeared", drive } as DriveEvent);
-										}
-										return Option.none();
-									}
-
-									// Disappeared
-									const driveId = map.get(event.bsdName);
-									if (driveId) {
-										yield* Ref.update(driveIdMap, (m) => {
-											const newMap = new Map(m);
-											newMap.delete(event.bsdName);
-											return newMap;
-										});
-										yield* logger.info(`Drive disappeared: ${driveId}`);
-										return Option.some({ _tag: "Disappeared", driveId } as DriveEvent);
-									}
-									return Option.none();
-								}),
+								processActivityEvent(
+									event,
+									{ driveIdMap, lastEventTimeMap },
+									(bsdName) => getDriveDetails(bsdName, logger),
+									logger,
+									Date.now(),
+								),
 							),
 							Stream.filterMap((o) =>
 								Option.isSome(o) ? Result.succeed(o.value) : Result.fail(undefined),

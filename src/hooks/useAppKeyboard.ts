@@ -76,6 +76,12 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 			return;
 		}
 
+		// Letter (and space) actions are for the plain key only. Ctrl+<letter> is a
+		// different chord: ctrl+t is handled above, and ctrl+u/ctrl+d arrive remapped
+		// to page keys with ctrl cleared, so anything still carrying ctrl here must
+		// not fall through to the plain action.
+		if (ctrl && (key.length === 1 || key === "space")) return;
+
 		if (key === "f1") {
 			actions.setDebugMenuIndex(Math.max(0, state.debugMessages.length - 1));
 			actions.setAppView("debug");
@@ -193,7 +199,7 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 		} else if (key === "up" || key === "k") {
 			actions.setDriveMenuIndex((i) => Math.max(0, i - 1));
 		} else if (key === "down" || key === "j") {
-			actions.setDriveMenuIndex((i) => Math.min(state.drives.length - 1, i + 1));
+			actions.setDriveMenuIndex((i) => Math.max(0, Math.min(state.drives.length - 1, i + 1)));
 		} else if (key === "return" || key === "enter") {
 			const drive = state.drives[state.driveMenuIndex];
 			if (drive) {
@@ -221,7 +227,9 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 		} else if (key === "up" || key === "k") {
 			actions.setDebugMenuIndex((i) => Math.max(0, i - 1));
 		} else if (key === "down" || key === "j") {
-			actions.setDebugMenuIndex((i) => Math.min(state.debugMessages.length - 1, i + 1));
+			actions.setDebugMenuIndex((i) =>
+				Math.max(0, Math.min(state.debugMessages.length - 1, i + 1)),
+			);
 		} else if (key === "return" || key === "enter") {
 			const message = state.debugMessages[state.debugMenuIndex];
 			if (message) {

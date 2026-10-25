@@ -44,8 +44,10 @@ export const MetadataEditorLive = Layer.succeed(MetadataEditor, {
 					},
 					year: metadata.year,
 				};
-				// Use the Promise API to avoid blocking the main thread (and the TUI)
-				return nodeID3.Promise.write(tags, path);
+				// Use the Promise API to avoid blocking the main thread (and the TUI).
+				// update() merges into existing tags; write() would replace them all
+				// and drop cover art, chapters and other frames already in the file.
+				return nodeID3.Promise.update(tags, path);
 			},
 			catch: (cause) => new MetadataError({ path, cause }),
 		}),

@@ -70,8 +70,16 @@ export const PodcastServiceLive = Layer.effect(
 
 						const workerUrl = new URL(workerPath, import.meta.url);
 						yield* logger.debug(`Spawning worker for database access: ${workerUrl}`);
-						return new Worker(workerUrl);
-					}).pipe(Effect.catch((err) => Effect.fail(new PodcastError({ cause: err })))),
+						// `new Worker` can throw synchronously (bad URL, resource limits);
+						// capture that as a typed PodcastError rather than a defect.
+						return yield* Effect.try({
+							try: () => new Worker(workerUrl),
+							catch: (cause) =>
+								new PodcastError({ cause, message: "Failed to start database worker" }),
+						}).pipe(
+							Effect.tapError((err) => logger.error("Failed to start database worker", err.cause)),
+						);
+					}),
 					// Use: Perform the async work
 					(worker) =>
 						Effect.callback<PodcastEpisode[], PodcastError>((resume) => {

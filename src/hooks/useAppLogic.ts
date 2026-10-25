@@ -27,6 +27,7 @@ import { setTheme } from "@/theme/colors";
 import type { Drive } from "@/types/drive";
 import type { PodcastEpisode } from "@/types/podcast";
 import {
+	formatBytes,
 	groupEpisodesByPodcast,
 	mapPodcastsToEpisodes,
 	markEpisodesOnDrive,
@@ -187,6 +188,16 @@ export const syncSuccessMessage = (discarded: number): string =>
 		: "Sync complete";
 
 /**
+ * Bytes per second since `startTime`, or 0 when no time has elapsed (which would
+ * otherwise divide by zero and yield Infinity or NaN).
+ */
+const transferSpeed = (bytesTransferred: number, startTime: number): number => {
+	if (startTime <= 0) return 0;
+	const elapsedMs = Date.now() - startTime;
+	return elapsedMs > 0 ? bytesTransferred / (elapsedMs / 1000) : 0;
+};
+
+/**
  * Hook containing the core application logic, orchestrating various Effect services.
  *
  * @param layer Service layer to run against. Defaults to the live services;
@@ -195,6 +206,15 @@ export const syncSuccessMessage = (discarded: number): string =>
 export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()) => {
 	let driveListenerFiber: Fiber.Fiber<unknown, unknown> | undefined;
 	let activeSyncFiber: Fiber.Fiber<unknown, unknown> | undefined;
+	// True from startSync until its whole run (copy, rescan) ends. activeSyncFiber
+	// is only set once the fiber is forked, so it cannot guard a second call that
+	// arrives in between.
+	let syncRunning = false;
+	// Bumped by every drive load (and by the current drive disappearing). Only the
+	// load holding the latest value may clear loadingDrive, so a superseded load
+	// finishing late cannot switch the spinner off while a newer one still runs.
+	let loadGeneration = 0;
+	let runningLoads = 0;
 
 	/**
 	 * Runs an effect to completion using the AppLayer.
@@ -224,39 +244,68 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 				() => Effect.sync(() => actions.setAppView("normal")),
 			);
 
+	const isCurrentDrive = (drive: Drive): boolean => state.currentDrive?.id === drive.id;
+
+	/**
+	 * With no readable drive listing, no Mac episode can claim to be on the drive.
+	 */
+	const clearOnDriveMarkers = () => {
+		actions.setMacPodcasts((prev) => markEpisodesOnDrive(prev, []));
+	};
+
 	/**
 	 * Loads podcasts from a drive using the DriveScan service.
 	 */
 	const loadDrivePodcastsEffect = (
 		drive: Drive,
 	): Effect.Effect<boolean, never, FileSystem | EpisodeMatcher | DriveScan | Logger> =>
-		Effect.gen(function* () {
-			const logger = yield* Logger;
-			actions.setLoadingDrive(true);
-			const driveScan = yield* DriveScan;
-			const podcasts = yield* driveScan.scanDrive(drive.mountPoint);
-			const episodes = mapPodcastsToEpisodes(podcasts);
+		// Suspended so the generation is taken when the load runs, not when the
+		// effect is constructed.
+		Effect.suspend(() => {
+			const generation = ++loadGeneration;
+			runningLoads++;
+			return Effect.gen(function* () {
+				const logger = yield* Logger;
+				actions.setLoadingDrive(true);
+				const driveScan = yield* DriveScan;
+				const podcasts = yield* driveScan.scanDrive(drive.mountPoint);
 
-			actions.setDrivePodcasts(episodes);
-			yield* logger.debug(`Loaded ${episodes.length} drive episodes`);
+				// The scan is slow and the user can switch or unplug the drive while it
+				// runs. Results for a drive that is no longer current are discarded, or
+				// they would show one drive's episodes under another.
+				if (!isCurrentDrive(drive)) return false;
 
-			// Mark Mac podcasts that are on the drive
-			const updated = markEpisodesOnDrive(state.macPodcasts, episodes);
-			actions.setMacPodcasts(updated);
-			return true;
-		}).pipe(
-			// Yields false when the rescan failed, so a caller that is about to report
-			// success does not overwrite the error set here. The two status fields are
-			// mutually exclusive, so a later setSuccessMsg would clear it.
-			Effect.catch((err) => {
-				const errorMessage = describeError(err);
-				actions.setErrorMsg(errorMessage);
-				actions.addDebugMessage(errorMessage, "error");
-				actions.setDrivePodcasts([]);
-				return Effect.succeed(false);
-			}),
-			Effect.onExit(() => Effect.sync(() => actions.setLoadingDrive(false))),
-		);
+				const episodes = mapPodcastsToEpisodes(podcasts);
+
+				actions.setDrivePodcasts(episodes);
+				yield* logger.debug(`Loaded ${episodes.length} drive episodes`);
+
+				// Mark Mac podcasts that are on the drive
+				const updated = markEpisodesOnDrive(state.macPodcasts, episodes);
+				actions.setMacPodcasts(updated);
+				return true;
+			}).pipe(
+				// Yields false when the rescan failed, so a caller that is about to report
+				// success does not overwrite the error set here. The two status fields are
+				// mutually exclusive, so a later setSuccessMsg would clear it.
+				Effect.catch((err) => {
+					if (!isCurrentDrive(drive)) return Effect.succeed(false);
+					const errorMessage = describeError(err);
+					actions.setErrorMsg(errorMessage);
+					actions.addDebugMessage(errorMessage, "error");
+					actions.setDrivePodcasts([]);
+					clearOnDriveMarkers();
+					return Effect.succeed(false);
+				}),
+				// Runs on success, failure and interruption alike.
+				Effect.onExit(() =>
+					Effect.sync(() => {
+						runningLoads--;
+						if (generation === loadGeneration) actions.setLoadingDrive(false);
+					}),
+				),
+			);
+		});
 
 	/**
 	 * Imperative wrapper for loadDrivePodcastsEffect.
@@ -307,7 +356,8 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 			Effect.onExit(() =>
 				Effect.sync(() => {
 					actions.setIsScanning(false);
-					actions.setLoadingDrive(false);
+					// A load started meanwhile (the user picked a drive) clears its own flag.
+					if (runningLoads === 0) actions.setLoadingDrive(false);
 				}),
 			),
 		);
@@ -351,6 +401,11 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 						if (state.currentDrive?.id === event.driveId) {
 							actions.setCurrentDrive(null);
 							actions.setDrivePodcasts([]);
+							clearOnDriveMarkers();
+							// A load for the unplugged drive is now pointless. Supersede it so
+							// the spinner stops here instead of waiting on a scan that may hang.
+							loadGeneration++;
+							actions.setLoadingDrive(false);
 						}
 						yield* logger.info(`Drive disappeared: ${event.driveId}`);
 					}
@@ -489,6 +544,12 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 	 * Starts the sync operation for selected episodes.
 	 */
 	const startSync = (episodesToSync: PodcastEpisode[]) => {
+		// A second sync would overwrite activeSyncFiber and make the first
+		// uncancellable. Ignore it, and leave the current status untouched.
+		if (syncRunning) {
+			actions.addDebugMessage("Sync already in progress; ignoring request");
+			return;
+		}
 		// A new sync supersedes any previous outcome message.
 		actions.setSuccessMsg("");
 		const drive = state.currentDrive;
@@ -502,6 +563,7 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 			return;
 		}
 
+		syncRunning = true;
 		actions.updateTransferProgress({
 			currentFile: "Preparing...",
 			filesDone: 0,
@@ -531,6 +593,15 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 				return { success: true, message: "All episodes already synced" };
 			}
 
+			// Refuse up front rather than fail midway with a half-copied drive. A
+			// negative freeSpace means the drive could not report it, so no check.
+			if (drive.freeSpace >= 0 && plan.totalBytes > drive.freeSpace) {
+				return {
+					success: false,
+					message: `Not enough space on ${drive.name}: need ${formatBytes(plan.totalBytes)}, have ${formatBytes(drive.freeSpace)}`,
+				};
+			}
+
 			// Initialize progress with plan info
 			actions.updateTransferProgress({
 				totalFiles: plan.totalFiles,
@@ -550,14 +621,15 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 
 					actions.updateTransferProgress({
 						currentFile: progress.currentFile,
-						filesDone: progress.status === "complete" ? progress.totalFiles : progress.currentIndex,
+						// currentIndex is the 1-based file in progress, so it is not done yet.
+						filesDone:
+							progress.status === "complete"
+								? progress.totalFiles
+								: Math.max(0, progress.currentIndex - 1),
 						totalFiles: progress.totalFiles,
 						bytesTransferred: progress.bytesTransferred,
 						totalBytes: progress.totalBytes,
-						speed:
-							progress.startTime > 0
-								? progress.bytesTransferred / ((Date.now() - progress.startTime) / 1000)
-								: 0,
+						speed: transferSpeed(progress.bytesTransferred, progress.startTime),
 					});
 
 					if (progress.status === "error" && progress.error) {
@@ -575,6 +647,7 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 		run(
 			Effect.gen(function* () {
 				const logger = yield* Logger;
+				const syncEngine = yield* SyncEngine;
 				const fiber = yield* Effect.forkChild(syncProgram);
 				activeSyncFiber = fiber;
 
@@ -598,6 +671,11 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 					if (Cause.hasInterruptsOnly(cause)) {
 						yield* logger.info("Sync cancelled by user");
 						actions.setErrorMsg("");
+						// Files copied before the cancel are on the drive: tidy up what the
+						// interrupted run left behind and rescan so they show. No success
+						// message, since the sync did not finish.
+						yield* syncEngine.cleanup(drive.mountPoint).pipe(Effect.catch(() => Effect.void));
+						yield* loadDrivePodcastsEffect(drive);
 					} else {
 						yield* logger.error("Sync failed", cause);
 						// Not cause.toString(): that renders the whole Effect cause
@@ -606,7 +684,15 @@ export const useAppLogic = (layer: Layer.Layer<AppRequirements> = makeAppLayer()
 						actions.setErrorMsg(describeError(cause));
 					}
 				}
-			}).pipe(withView("syncing")),
+			}).pipe(
+				withView("syncing"),
+				Effect.ensuring(
+					Effect.sync(() => {
+						syncRunning = false;
+						activeSyncFiber = undefined;
+					}),
+				),
+			),
 		);
 	};
 

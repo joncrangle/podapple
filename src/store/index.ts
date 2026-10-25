@@ -76,6 +76,9 @@ const updateState = (update: (draft: AppState) => void): void => {
 	setState(update);
 };
 
+const clampIndex = (index: number, length: number): number =>
+	Math.min(Math.max(0, index), Math.max(0, length - 1));
+
 const resolveUpdate = <T>(value: T | ((previous: T) => T), previous: T): T =>
 	typeof value === "function" ? (value as (previous: T) => T)(previous) : value;
 
@@ -112,13 +115,18 @@ export const actions = {
 		episodes: PodcastEpisode[] | ((previous: PodcastEpisode[]) => PodcastEpisode[]),
 	) =>
 		updateState((draft) => {
-			draft.macPodcasts = resolveUpdate(episodes, draft.macPodcasts);
+			const next = resolveUpdate(episodes, draft.macPodcasts);
+			draft.macPodcasts = next;
+			// The list may have shrunk under the cursor; keep it on a real row.
+			draft.macIndex = clampIndex(draft.macIndex, next.length);
 		}),
 	setDrivePodcasts: (
 		episodes: PodcastEpisode[] | ((previous: PodcastEpisode[]) => PodcastEpisode[]),
 	) =>
 		updateState((draft) => {
-			draft.drivePodcasts = resolveUpdate(episodes, draft.drivePodcasts);
+			const next = resolveUpdate(episodes, draft.drivePodcasts);
+			draft.drivePodcasts = next;
+			draft.driveIndex = clampIndex(draft.driveIndex, next.length);
 		}),
 	setDrives: (drives: Drive[] | ((previous: Drive[]) => Drive[])) =>
 		updateState((draft) => {

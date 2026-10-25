@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import { FileSystem } from "@/services/effects/FileSystem";
 import { Logger } from "@/services/effects/Logger";
 
@@ -36,40 +36,60 @@ export const SettingsServiceLive = Layer.effect(
 		const fs = yield* FileSystem;
 		const logger = yield* Logger;
 
+		const DEFAULTS: Settings = { theme: "Catppuccin", favoriteDrives: [] };
+
+		/**
+		 * Reads the settings file. A missing file is `None` (use defaults); a file
+		 * that exists but cannot be read or parsed is an error, so callers that
+		 * would overwrite it can refuse.
+		 */
+		const readSettings = Effect.gen(function* () {
+			if (!(yield* fs.exists(SETTINGS_FILE))) return Option.none<Settings>();
+			const data = yield* fs
+				.readFile(SETTINGS_FILE)
+				.pipe(Effect.mapError((cause) => new Error(`Failed to read settings: ${cause.path}`)));
+			const parsed = yield* Effect.try({
+				try: () => {
+					const text = new TextDecoder().decode(data);
+					// Strip single-line and multi-line comments from JSONC
+					const cleanJson = text.replace(
+						/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
+						(m, g) => (g ? "" : m),
+					);
+					const value: unknown = JSON.parse(cleanJson);
+					if (typeof value !== "object" || value === null || Array.isArray(value)) {
+						throw new Error("expected a JSON object");
+					}
+					return value as Settings;
+				},
+				catch: (cause) => new Error(`Failed to parse settings: ${cause}`),
+			});
+			return Option.some(parsed);
+		});
+
 		const loadSettings = Effect.gen(function* () {
 			yield* logger.debug(`Loading settings from: ${SETTINGS_FILE}`);
-			const result = yield* fs.readFile(SETTINGS_FILE).pipe(
-				Effect.flatMap((data) =>
-					Effect.try({
-						try: () => {
-							const text = new TextDecoder().decode(data);
-							// Strip single-line and multi-line comments from JSONC
-							const cleanJson = text.replace(
-								/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
-								(m, g) => (g ? "" : m),
-							);
-							return JSON.parse(cleanJson) as Settings;
-						},
-						catch: (cause) => new Error(`Failed to parse settings: ${cause}`),
-					}),
-				),
-				Effect.catch(() => Effect.succeed(null)),
+			const result = yield* readSettings.pipe(
+				Effect.tapError((err) => logger.error("Could not load settings, using defaults", err)),
+				Effect.catch(() => Effect.succeed(Option.none<Settings>())),
 			);
 
-			if (result) {
+			if (Option.isSome(result)) {
 				yield* logger.info("Settings loaded successfully");
-				return result;
+				return result.value;
 			}
 
 			yield* logger.info("Using default settings (could not load or parse settings file)");
-			return { theme: "Catppuccin", favoriteDrives: [] } as Settings;
+			return { ...DEFAULTS } as Settings;
 		});
 
 		const saveSettings = (newSettings: Partial<Settings>) =>
 			Effect.gen(function* () {
 				yield* logger.debug(`Saving settings to: ${SETTINGS_FILE}`);
-				const currentSettings = yield* loadSettings;
-				const mergedSettings = { ...currentSettings, ...newSettings };
+				// Strict read: if the file exists but is unreadable/corrupt, fail rather
+				// than overwrite the user's (possibly hand-edited) settings with defaults.
+				const current = yield* readSettings;
+				const mergedSettings = { ...(Option.getOrUndefined(current) ?? DEFAULTS), ...newSettings };
 
 				const dirExists = yield* fs.exists(SETTINGS_DIR);
 				if (!dirExists) {
@@ -81,7 +101,13 @@ export const SettingsServiceLive = Layer.effect(
 					...mergedSettings,
 				};
 				const data = new TextEncoder().encode(JSON.stringify(settingsWithSchema, null, 2));
-				yield* fs.writeFile(SETTINGS_FILE, data);
+				// Write to a temp file and rename so a crash mid-write never leaves a
+				// truncated settings file behind.
+				const tmpFile = `${SETTINGS_FILE}.${process.pid}.tmp`;
+				yield* fs.writeFile(tmpFile, data);
+				yield* fs
+					.rename(tmpFile, SETTINGS_FILE)
+					.pipe(Effect.tapError(() => fs.remove(tmpFile).pipe(Effect.ignore)));
 				yield* logger.info("Settings saved successfully");
 			}).pipe(
 				Effect.tapError((err) => logger.error("Failed to save settings", err)),
