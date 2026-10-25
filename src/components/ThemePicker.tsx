@@ -1,7 +1,6 @@
-import { createEffect } from "solid-js";
 import type { useAppLogic } from "@/hooks/useAppLogic";
 import { actions, state } from "@/store";
-import { setTheme, Themes } from "@/theme/colors";
+import { previewThemeAt, setTheme, Themes } from "@/theme/colors";
 import { Selector } from "./Selector";
 
 interface ThemePickerProps {
@@ -12,15 +11,10 @@ interface ThemePickerProps {
 export function ThemePicker(props: ThemePickerProps) {
 	const themeNames = Themes;
 
-	// Sync theme preview with selected index in store
-	createEffect(() => {
-		if (state.appView === "themeSelection") {
-			const themeName = themeNames[state.themeMenuIndex];
-			if (themeName) {
-				setTheme(themeName);
-			}
-		}
-	});
+	const handleIndexChange = (index: number) => {
+		actions.setThemeMenuIndex(index);
+		previewThemeAt(index);
+	};
 
 	const handleSelect = (themeName: string) => {
 		setTheme(themeName);
@@ -40,7 +34,7 @@ export function ThemePicker(props: ThemePickerProps) {
 			visible={true}
 			items={themeNames}
 			selectedIndex={state.themeMenuIndex}
-			onIndexChange={(index) => actions.setThemeMenuIndex(index)}
+			onIndexChange={handleIndexChange}
 			formatItem={(name) => ({ name })}
 			onSelect={handleSelect}
 			onClose={handleClose}

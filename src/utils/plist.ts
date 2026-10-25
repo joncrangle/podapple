@@ -4,7 +4,7 @@
  * Parses Apple plist XML format from diskutil output.
  */
 
-import { Either } from "effect";
+import { Result } from "effect";
 
 export type PlistValue =
 	| string
@@ -18,11 +18,17 @@ export interface PlistDict {
 	[key: string]: PlistValue;
 }
 
+/** `<real>` content: optional sign, digits with optional fraction, optional exponent. */
+const REAL_PATTERN = /^<real>\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*<\/real>/;
+
+/** `<string/>` and `<string />`: an empty string written as an empty element. */
+const SELF_CLOSING_STRING = /^<string\s*\/>/;
+
 /**
  * Parses Apple plist XML format from diskutil output.
  * Supports dict, array, string, integer, real, boolean, date, and data tags.
  */
-export function parsePlist(xml: string): Either.Either<PlistValue, Error> {
+export function parsePlist(xml: string): Result.Result<PlistValue, Error> {
 	const content = xml
 		.replace(/<\?xml[^?]*\?>/g, "")
 		.replace(/<!DOCTYPE[^>]*>/g, "")
@@ -30,14 +36,14 @@ export function parsePlist(xml: string): Either.Either<PlistValue, Error> {
 
 	const plistMatch = content.match(/<plist[^>]*>([\s\S]*)<\/plist>/);
 	if (!plistMatch) {
-		return Either.left(new Error("Invalid plist: no <plist> element found"));
+		return Result.fail(new Error("Invalid plist: no <plist> element found"));
 	}
 
 	const innerContent = plistMatch[1]?.trim() ?? "";
 	try {
-		return Either.right(parseElement(innerContent));
+		return Result.succeed(parseElement(innerContent));
 	} catch (error) {
-		return Either.left(error instanceof Error ? error : new Error(String(error)));
+		return Result.fail(error instanceof Error ? error : new Error(String(error)));
 	}
 }
 
@@ -60,6 +66,10 @@ function parseElement(xml: string): PlistValue {
 		return parseArray(trimmed);
 	}
 
+	if (SELF_CLOSING_STRING.test(trimmed)) {
+		return "";
+	}
+
 	const stringMatch = trimmed.match(/^<string>([\s\S]*?)<\/string>/);
 	if (stringMatch) {
 		return decodeXmlEntities(stringMatch[1] ?? "");
@@ -70,7 +80,7 @@ function parseElement(xml: string): PlistValue {
 		return Number.parseInt(intMatch[1] ?? "0", 10);
 	}
 
-	const realMatch = trimmed.match(/^<real>(-?[\d.]+)<\/real>/);
+	const realMatch = trimmed.match(REAL_PATTERN);
 	if (realMatch) {
 		return Number.parseFloat(realMatch[1] ?? "0");
 	}
@@ -159,7 +169,14 @@ function parseDict(xml: string): PlistDict {
 
 		const valueStart = pos;
 		const valueResult = extractNextValue(content, valueStart);
-		if (!valueResult) break;
+		if (!valueResult) {
+			// One value this parser does not understand must not take the rest of
+			// the dict with it. Drop this key and resume at the next one.
+			const nextKey = content.indexOf("<key>", valueStart);
+			if (nextKey === -1) break;
+			pos = nextKey;
+			continue;
+		}
 
 		result[key] = valueResult.value;
 		pos = valueResult.endPos;
@@ -188,6 +205,11 @@ function extractNextValue(
 		return { value: false, endPos: pos + 9 };
 	}
 
+	const emptyString = remaining.match(SELF_CLOSING_STRING);
+	if (emptyString) {
+		return { value: "", endPos: pos + emptyString[0].length };
+	}
+
 	const stringMatch = remaining.match(/^<string>([\s\S]*?)<\/string>/);
 	if (stringMatch) {
 		return {
@@ -204,7 +226,7 @@ function extractNextValue(
 		};
 	}
 
-	const realMatch = remaining.match(/^<real>(-?[\d.]+)<\/real>/);
+	const realMatch = remaining.match(REAL_PATTERN);
 	if (realMatch) {
 		return {
 			value: Number.parseFloat(realMatch[1] ?? "0"),
@@ -319,14 +341,27 @@ function findClosingTag(xml: string, tagName: string): number {
 	return xml.length;
 }
 
+/**
+ * Decodes the five predefined XML entities and numeric character references.
+ *
+ * One pass over the input, so decoded output is never decoded again: the literal
+ * text "&amp;lt;" becomes "&lt;", not "<". Chaining replaces with &amp; first
+ * gets this wrong.
+ */
 function decodeXmlEntities(str: string): string {
-	return str
-		.replace(/&amp;/g, "&")
-		.replace(/&lt;/g, "<")
-		.replace(/&gt;/g, ">")
-		.replace(/&quot;/g, '"')
-		.replace(/&apos;/g, "'");
+	return str.replace(
+		/&(?:#x([0-9a-fA-F]+)|#(\d+)|(amp|lt|gt|quot|apos));/g,
+		(match, hex, dec, named) => {
+			if (named) return NAMED_ENTITIES[named as keyof typeof NAMED_ENTITIES];
+			const codePoint = hex ? Number.parseInt(hex, 16) : Number.parseInt(dec, 10);
+			// Out of range (or a lone surrogate) is not a character; leave it as written.
+			if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return match;
+			return String.fromCodePoint(codePoint);
+		},
+	);
 }
+
+const NAMED_ENTITIES = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" } as const;
 
 /**
  * Gets a string value from a PlistDict.

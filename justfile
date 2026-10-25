@@ -46,6 +46,10 @@ fmt:
     bun run format
 alias f := fmt
 
+# Check formatting without writing
+fmt-check:
+    bunx oxfmt --check .
+
 # Clean build artifacts
 clean:
     rm -rf node_modules/.cache

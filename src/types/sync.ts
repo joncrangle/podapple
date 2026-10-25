@@ -6,20 +6,11 @@ export interface SyncProgress {
 	totalFiles: number;
 	bytesTransferred: number;
 	totalBytes: number;
+	/** Files copied but discarded because tagging failed. Monotonic across a run. */
+	discarded: number;
 	startTime: number;
 	status: "idle" | "syncing" | "complete" | "error";
 	error?: string;
-}
-
-export interface SyncOptions {
-	sourcePath: string; // Path to Mac podcasts
-	destinationPath: string; // Path to USB drive
-	deleteOrphans: boolean; // Remove episodes not on Mac
-	dryRun: boolean; // Preview changes without syncing
-}
-
-export interface SyncEpisode extends Episode {
-	podcastTitle: string;
 }
 
 export interface CopyItem {
@@ -41,24 +32,4 @@ export interface SyncPlan {
 	toDelete: DeleteItem[];
 	totalBytes: number;
 	totalFiles: number;
-}
-
-export interface SyncResult {
-	copied: number;
-	deleted: number;
-	failed: Array<{ file: string; error: string }>;
-	duration: number;
-}
-
-export interface DriveEpisode {
-	id: string;
-	title: string;
-	path: string;
-	size: number;
-}
-
-export interface DrivePodcast {
-	name: string;
-	path: string;
-	episodes: DriveEpisode[];
 }

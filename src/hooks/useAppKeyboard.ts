@@ -1,7 +1,8 @@
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { actions, state } from "@/store";
-import { setTheme, Themes } from "@/theme/colors";
+import { previewThemeAt, setTheme, Themes } from "@/theme/colors";
 import { copyToClipboard } from "@/utils/clipboard";
+import { selectDrive } from "@/utils/driveSelection";
 import { quitApp } from "@/utils/terminal";
 import type { useAppLogic } from "./useAppLogic";
 
@@ -41,9 +42,13 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 			setTheme(state.lastSavedTheme);
 			actions.setAppView("normal");
 		} else if (key === "up" || key === "k") {
-			actions.setThemeMenuIndex((i) => Math.max(0, i - 1));
+			const index = Math.max(0, state.themeMenuIndex - 1);
+			actions.setThemeMenuIndex(index);
+			previewThemeAt(index);
 		} else if (key === "down" || key === "j") {
-			actions.setThemeMenuIndex((i) => Math.min(Themes.length - 1, i + 1));
+			const index = Math.min(Themes.length - 1, state.themeMenuIndex + 1);
+			actions.setThemeMenuIndex(index);
+			previewThemeAt(index);
 		} else if (key === "return" || key === "enter") {
 			const themeName = Themes[state.themeMenuIndex];
 			if (themeName) {
@@ -63,10 +68,19 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 	const handleNormalActions = (key: string, ctrl: boolean): void => {
 		if (ctrl && key === "t") {
 			const currentIndex = (Themes as string[]).indexOf(state.lastSavedTheme);
-			actions.setThemeMenuIndex(currentIndex >= 0 ? currentIndex : 0);
+			const index = currentIndex >= 0 ? currentIndex : 0;
+			actions.setThemeMenuIndex(index);
+			if (currentIndex >= 0) previewThemeAt(index);
+			else setTheme(state.lastSavedTheme);
 			actions.setAppView("themeSelection");
 			return;
 		}
+
+		// Letter (and space) actions are for the plain key only. Ctrl+<letter> is a
+		// different chord: ctrl+t is handled above, and ctrl+u/ctrl+d arrive remapped
+		// to page keys with ctrl cleared, so anything still carrying ctrl here must
+		// not fall through to the plain action.
+		if (ctrl && (key.length === 1 || key === "space")) return;
 
 		if (key === "f1") {
 			actions.setDebugMenuIndex(Math.max(0, state.debugMessages.length - 1));
@@ -185,13 +199,11 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 		} else if (key === "up" || key === "k") {
 			actions.setDriveMenuIndex((i) => Math.max(0, i - 1));
 		} else if (key === "down" || key === "j") {
-			actions.setDriveMenuIndex((i) => Math.min(state.drives.length - 1, i + 1));
+			actions.setDriveMenuIndex((i) => Math.max(0, Math.min(state.drives.length - 1, i + 1)));
 		} else if (key === "return" || key === "enter") {
 			const drive = state.drives[state.driveMenuIndex];
 			if (drive) {
-				actions.setCurrentDrive(drive);
-				actions.setAppView("normal");
-				logic.loadDrivePodcasts(drive);
+				selectDrive(drive, logic.loadDrivePodcasts);
 			}
 		} else if (ctrl && (key === "f" || key === "F")) {
 			const drive = state.drives[state.driveMenuIndex];
@@ -215,7 +227,9 @@ export const useAppKeyboard = (logic: ReturnType<typeof useAppLogic>) => {
 		} else if (key === "up" || key === "k") {
 			actions.setDebugMenuIndex((i) => Math.max(0, i - 1));
 		} else if (key === "down" || key === "j") {
-			actions.setDebugMenuIndex((i) => Math.min(state.debugMessages.length - 1, i + 1));
+			actions.setDebugMenuIndex((i) =>
+				Math.max(0, Math.min(state.debugMessages.length - 1, i + 1)),
+			);
 		} else if (key === "return" || key === "enter") {
 			const message = state.debugMessages[state.debugMenuIndex];
 			if (message) {

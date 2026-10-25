@@ -54,10 +54,105 @@ describe("store actions", () => {
 		expect(state.transferProgress.totalFiles).toBe(10);
 	});
 
+	it("should clear a pending error when a success is set", () => {
+		// Seed the error first, otherwise the assertion below cannot fail.
+		actions.setErrorMsg("something broke");
+		expect(state.errorMsg).toBe("something broke");
+
+		actions.setSuccessMsg("Sync complete");
+		expect(state.successMsg).toBe("Sync complete");
+		// A success message must not leave the error channel populated.
+		expect(state.errorMsg).toBe("");
+
+		actions.setSuccessMsg("");
+	});
+
+	it("should clear successMsg when an error is set", () => {
+		actions.setSuccessMsg("Sync complete");
+		// Seed the success first, otherwise the assertion below cannot fail.
+		expect(state.successMsg).toBe("Sync complete");
+
+		// Only one status line at a time: a fresh error must not render
+		// alongside a stale success.
+		actions.setErrorMsg("something broke");
+		expect(state.errorMsg).toBe("something broke");
+		expect(state.successMsg).toBe("");
+
+		actions.setErrorMsg("");
+	});
+
+	it("should clear errorMsg when a success is set", () => {
+		actions.setErrorMsg("something broke");
+		expect(state.errorMsg).toBe("something broke");
+
+		actions.setSuccessMsg("Sync complete");
+		expect(state.successMsg).toBe("Sync complete");
+		expect(state.errorMsg).toBe("");
+
+		actions.setSuccessMsg("");
+	});
+
 	it("should add debug messages", () => {
 		actions.clearDebugMessages();
 		actions.addDebugMessage("Test message", "info");
 		expect(state.debugMessages.length).toBe(1);
 		expect(state.debugMessages[0]?.message).toBe("Test message");
+	});
+
+	it("should fully reset state without mutating the initial state", () => {
+		actions.resetState();
+		actions.addDebugMessage("x");
+		actions.updateTransferProgress({ filesDone: 3 });
+		actions.toggleFavoriteDrive("d");
+		expect(state.debugMessages.length).toBe(1);
+		expect(state.transferProgress.filesDone).toBe(3);
+		expect(state.favoriteDrives).toEqual(["d"]);
+
+		actions.resetState();
+		expect(state.debugMessages.length).toBe(0);
+		expect(state.transferProgress.filesDone).toBe(0);
+		expect(state.favoriteDrives).toEqual([]);
+
+		// A second round proves each reset hands out fresh objects.
+		actions.addDebugMessage("y");
+		actions.updateTransferProgress({ filesDone: 5 });
+		actions.toggleFavoriteDrive("e");
+		actions.resetState();
+		expect(state.debugMessages.length).toBe(0);
+		expect(state.transferProgress.filesDone).toBe(0);
+		expect(state.favoriteDrives).toEqual([]);
+	});
+
+	it("clamps macIndex when the Mac list shrinks", () => {
+		actions.resetState();
+		actions.setMacPodcasts([{ id: "1" }, { id: "2" }, { id: "3" }] as PodcastEpisode[]);
+		actions.setMacIndex(2);
+
+		actions.setMacPodcasts([{ id: "1" }] as PodcastEpisode[]);
+		expect(state.macIndex).toBe(0);
+
+		actions.setMacPodcasts([]);
+		expect(state.macIndex).toBe(0);
+	});
+
+	it("clamps driveIndex when the drive list shrinks", () => {
+		actions.resetState();
+		actions.setDrivePodcasts([{ id: "1" }, { id: "2" }, { id: "3" }] as PodcastEpisode[]);
+		actions.setDriveIndex(2);
+
+		actions.setDrivePodcasts([{ id: "1" }, { id: "2" }] as PodcastEpisode[]);
+		expect(state.driveIndex).toBe(1);
+
+		actions.setDrivePodcasts([]);
+		expect(state.driveIndex).toBe(0);
+	});
+
+	it("leaves an in-range index alone when a list is replaced", () => {
+		actions.resetState();
+		actions.setMacPodcasts([{ id: "1" }, { id: "2" }, { id: "3" }] as PodcastEpisode[]);
+		actions.setMacIndex(1);
+
+		actions.setMacPodcasts((prev) => prev.map((ep) => ({ ...ep })));
+		expect(state.macIndex).toBe(1);
 	});
 });

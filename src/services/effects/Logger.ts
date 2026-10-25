@@ -4,7 +4,7 @@ import { actions } from "@/store";
 /**
  * Logger Service Tag
  */
-export class Logger extends Context.Tag("Logger")<
+export class Logger extends Context.Service<
 	Logger,
 	{
 		/** Logs a debug message to the application store */
@@ -14,7 +14,7 @@ export class Logger extends Context.Tag("Logger")<
 		/** Logs an error message and optional cause to the application store */
 		readonly error: (message: string, cause?: unknown) => Effect.Effect<void>;
 	}
->() {}
+>()("Logger") {}
 
 /**
  * Live implementation of Logger that updates the store actions.

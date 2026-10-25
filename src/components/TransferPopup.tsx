@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from "solid-js";
+import { Show } from "solid-js";
 import { Spinner } from "@/components/Spinner";
 import { Colors } from "@/theme/colors";
 import { formatBytes, truncateString } from "@/utils/formatting";
@@ -10,6 +10,7 @@ import { Modal } from "./Modal";
 export interface TransferPopupProps {
 	visible: boolean;
 	currentFile: string;
+	lastFile: string;
 	filesDone: number;
 	totalFiles: number;
 	bytesTransferred: number;
@@ -23,15 +24,7 @@ export interface TransferPopupProps {
  * Shows progress bars, percentages, transfer speed, and counts.
  */
 export function TransferPopup(props: TransferPopupProps) {
-	const [lastFile, setLastFile] = createSignal("");
-
-	createEffect(() => {
-		if (props.currentFile && props.currentFile !== "Preparing...") {
-			setLastFile(props.currentFile);
-		}
-	});
-
-	const displayFile = () => props.currentFile || lastFile();
+	const displayFile = () => props.currentFile || props.lastFile;
 
 	const progress = () =>
 		calculateProgress(props.filesDone, props.totalFiles, props.bytesTransferred, props.totalBytes);
@@ -59,7 +52,7 @@ export function TransferPopup(props: TransferPopupProps) {
 					<text style={{ fg: Colors.progressBar.filled }}>{progressBar()}</text>
 					<text style={{ fg: Colors.text.accent }}>{percentage()}%</text>
 					<Show when={progress() < 1}>
-						<Spinner active={true} variant='bouncingBall' />
+						<Spinner variant='bouncingBall' />
 					</Show>
 				</box>
 

@@ -55,7 +55,7 @@ export class RemoveError extends Data.TaggedError("RemoveError")<{
 /**
  * FileSystem Service Tag
  */
-export class FileSystem extends Context.Tag("FileSystem")<
+export class FileSystem extends Context.Service<
 	FileSystem,
 	{
 		/** Checks if a path exists on the filesystem */
@@ -66,11 +66,13 @@ export class FileSystem extends Context.Tag("FileSystem")<
 		readonly writeFile: (path: string, data: Uint8Array) => Effect.Effect<void, WriteError>;
 		/** Copies a file from src to dest */
 		readonly copyFile: (src: string, dest: string) => Effect.Effect<void, CopyError>;
+		/** Atomically renames (moves) a file, replacing the destination if present */
+		readonly rename: (from: string, to: string) => Effect.Effect<void, WriteError>;
 		/** Creates a directory recursively */
 		readonly mkdir: (path: string) => Effect.Effect<void, WriteError>;
 		/** Removes a file or directory recursively */
 		readonly remove: (path: string) => Effect.Effect<void, RemoveError>;
-		/** Reads directory entries using Bun.Glob */
+		/** Reads visible directory entries (files and directories) using Bun.Glob */
 		readonly readDir: (path: string) => Effect.Effect<string[], ReadDirError>;
 		/** Reads directory entries using node:fs/promises */
 		readonly list: (path: string) => Effect.Effect<string[], ReadDirError>;
@@ -99,7 +101,17 @@ export class FileSystem extends Context.Tag("FileSystem")<
 		/** Checks if a directory contains no visible files */
 		readonly isDirEmpty: (path: string) => Effect.Effect<boolean>;
 	}
->() {}
+>()("FileSystem") {}
+
+/**
+ * Extension of the final path segment only, so "/Volumes/My.Drive/episode" has no
+ * extension. Falls back to .mp3 when the basename has none.
+ */
+const getExtensionImpl = (path: string): string => {
+	const base = path.slice(path.lastIndexOf("/") + 1);
+	const lastDot = base.lastIndexOf(".");
+	return lastDot > 0 && lastDot < base.length - 1 ? base.slice(lastDot) : ".mp3";
+};
 
 const isSystemHiddenFileImpl = (name: string): boolean => {
 	if (SYSTEM_HIDDEN_FILES.includes(name)) return true;
@@ -118,7 +130,7 @@ export const FileSystemLive = Layer.effect(
 					await stat(path);
 				}).pipe(
 					Effect.as(true),
-					Effect.catchAll(() => Effect.succeed(false)),
+					Effect.catch(() => Effect.succeed(false)),
 				),
 
 			readFile: (path) =>
@@ -178,12 +190,25 @@ export const FileSystemLive = Layer.effect(
 					}).pipe(Effect.tapError((err) => logger.error(`Failed to remove path: ${path}`, err)));
 				}),
 
+			rename: (from, to) =>
+				Effect.tryPromise({
+					try: async () => {
+						const fs = await import("node:fs/promises");
+						await fs.rename(from, to);
+					},
+					catch: (cause) => new WriteError({ path: to, cause }),
+				}),
+
 			readDir: (path) =>
 				Effect.tryPromise({
 					try: async () => {
+						// Directories included (the default is files only), otherwise callers
+						// such as SyncEngine.cleanup never see show directories. Dot entries
+						// stay excluded: system hidden files are handled by
+						// cleanupSystemHiddenFiles, and user dot-folders are left alone.
 						const glob = new Bun.Glob("*");
 						const files: string[] = [];
-						for await (const file of glob.scan({ cwd: path })) {
+						for await (const file of glob.scan({ cwd: path, onlyFiles: false })) {
 							files.push(file);
 						}
 						return files;
@@ -205,7 +230,7 @@ export const FileSystemLive = Layer.effect(
 					const { stat } = await import("node:fs/promises");
 					const s = await stat(path);
 					return s.isDirectory();
-				}).pipe(Effect.catchAll(() => Effect.succeed(false))),
+				}).pipe(Effect.catch(() => Effect.succeed(false))),
 
 			glob: (pattern, cwd) =>
 				Effect.tryPromise({
@@ -235,7 +260,7 @@ export const FileSystemLive = Layer.effect(
 					const { stat } = await import("node:fs/promises");
 					const s = await stat(path);
 					return s.size;
-				}).pipe(Effect.catchAll(() => Effect.succeed(0))),
+				}).pipe(Effect.catch(() => Effect.succeed(0))),
 
 			ensureDir: (dirPath) =>
 				Effect.gen(function* () {
@@ -258,10 +283,7 @@ export const FileSystemLive = Layer.effect(
 				return AUDIO_EXTENSIONS.has(ext);
 			},
 
-			getExtension: (path) => {
-				const lastDot = path.lastIndexOf(".");
-				return lastDot >= 0 ? path.slice(lastDot) : ".mp3";
-			},
+			getExtension: getExtensionImpl,
 
 			cleanupSystemHiddenFiles: (dirPath) =>
 				Effect.gen(function* () {
@@ -281,7 +303,7 @@ export const FileSystemLive = Layer.effect(
 								Effect.tapError((err) =>
 									logger.error(`Failed to remove hidden file: ${entry}`, err),
 								),
-								Effect.catchAll(() => Effect.void),
+								Effect.catch(() => Effect.void),
 							);
 						}
 					}
@@ -293,7 +315,7 @@ export const FileSystemLive = Layer.effect(
 					const entries = yield* Effect.tryPromise({
 						try: () => readdir(path),
 						catch: (cause) => new ReadDirError({ path, cause }),
-					}).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+					}).pipe(Effect.catch(() => Effect.succeed([] as string[])));
 					const visibleFiles = entries.filter((e) => !isSystemHiddenFileImpl(e));
 					return visibleFiles.length === 0;
 				}),
@@ -337,6 +359,16 @@ export const createFileSystemTest = (files: Map<string, Uint8Array> = new Map())
 
 		remove: (path) => {
 			files.delete(path);
+			return Effect.void;
+		},
+
+		rename: (from, to) => {
+			const data = files.get(from);
+			if (!data) {
+				return Effect.fail(new WriteError({ path: to, cause: "Source not found" }));
+			}
+			files.set(to, data);
+			files.delete(from);
 			return Effect.void;
 		},
 
@@ -403,10 +435,7 @@ export const createFileSystemTest = (files: Map<string, Uint8Array> = new Map())
 			return AUDIO_EXTENSIONS.has(ext);
 		},
 
-		getExtension: (path) => {
-			const lastDot = path.lastIndexOf(".");
-			return lastDot >= 0 ? path.slice(lastDot) : ".mp3";
-		},
+		getExtension: getExtensionImpl,
 
 		cleanupSystemHiddenFiles: (_dirPath) => Effect.void,
 

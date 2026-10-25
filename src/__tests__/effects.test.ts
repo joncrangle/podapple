@@ -7,7 +7,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer, Stream } from "effect";
+import { Cause, Effect, Layer, Result, Stream } from "effect";
 import {
 	createDriveDetectionTest,
 	DriveDetection,
@@ -88,13 +88,13 @@ describe("FileSystem Service", () => {
 			});
 
 			const result = await Effect.runPromise(
-				Effect.either(Effect.provide(program, createFileSystemTest())),
+				Effect.result(Effect.provide(program, createFileSystemTest())),
 			);
 
-			expect(result._tag).toBe("Left");
-			if (result._tag === "Left") {
-				expect(result.left).toBeInstanceOf(FileNotFoundError);
-				expect((result.left as FileNotFoundError).path).toBe("/missing.txt");
+			expect(result._tag).toBe("Failure");
+			if (result._tag === "Failure") {
+				expect(result.failure).toBeInstanceOf(FileNotFoundError);
+				expect((result.failure as FileNotFoundError).path).toBe("/missing.txt");
 			}
 		});
 	});
@@ -139,12 +139,12 @@ describe("FileSystem Service", () => {
 			});
 
 			const result = await Effect.runPromise(
-				Effect.either(Effect.provide(program, createFileSystemTest())),
+				Effect.result(Effect.provide(program, createFileSystemTest())),
 			);
 
-			expect(result._tag).toBe("Left");
-			if (result._tag === "Left") {
-				expect(result.left).toBeInstanceOf(FileSystemCopyError);
+			expect(result._tag).toBe("Failure");
+			if (result._tag === "Failure") {
+				expect(result.failure).toBeInstanceOf(FileSystemCopyError);
 			}
 		});
 	});
@@ -354,6 +354,7 @@ describe("SyncEngine Service", () => {
 				{
 					id: "ep-1",
 					title: "Episode 1",
+					author: "Host A",
 					duration: 3600,
 					published: new Date("2024-01-01"),
 					onDrive: false,
@@ -363,6 +364,7 @@ describe("SyncEngine Service", () => {
 				{
 					id: "ep-2",
 					title: "Episode 2",
+					author: "Host A",
 					duration: 1800,
 					published: new Date("2024-01-08"),
 					onDrive: true,
@@ -594,7 +596,7 @@ describe("DriveScan Service", () => {
 
 			// Check index has correct key
 			expect(result.size).toBe(1);
-			expect(result.has("Tech_Talk/Episode 1")).toBe(true);
+			expect(result.has("Tech_Talk/Episode_1.mp3")).toBe(true);
 		});
 	});
 
@@ -725,8 +727,8 @@ describe("DriveScan Service", () => {
 			);
 
 			expect(result.size).toBe(3);
-			expect(result.has("Tech_Talk/Episode_1.mp3")).toBe(true);
-			expect(result.has("Tech_Talk/Episode_2.mp3")).toBe(true);
+			expect(result.has("Tech_Talk/2024-01-15 - Episode_1.mp3")).toBe(true);
+			expect(result.has("Tech_Talk/2024-01-22 - Episode_2.mp3")).toBe(true);
 			expect(result.has("Tech_Talk/InvalidDate_-_Episode_3.mp3")).toBe(true);
 		});
 
@@ -759,7 +761,7 @@ describe("DriveScan Service", () => {
 		it("buildExpectedDrivePath formats destination path correctly", async () => {
 			const program = Effect.gen(function* () {
 				const matcher = yield* EpisodeMatcher;
-				return matcher.buildExpectedDrivePath("Tech Talk", "Episode 1: Intro");
+				return matcher.buildExpectedDrivePath("Tech Talk", "Episode 1: Intro", "");
 			});
 
 			const result = await Effect.runPromise(Effect.provide(program, EpisodeMatcherLive));
@@ -777,33 +779,37 @@ describe("DriveScan Service", () => {
 				]);
 
 				// 1. Path match
-				const match1 = matcher.matchEpisode("Tech Talk", { title: "Episode 1" }, driveIndex);
+				const match1 = matcher.matchEpisode(
+					"Tech Talk",
+					{ published: new Date(0), title: "Episode 1" },
+					driveIndex,
+				);
 
 				// 2. Size match (same show)
 				const match2 = matcher.matchEpisode(
 					"Tech Talk",
-					{ title: "Episode 2", fileSize: 2000 },
+					{ published: new Date(0), title: "Episode 2", fileSize: 2000 },
 					driveIndex,
 				);
 
 				// 3. Duration match (within 2% tolerance, same show)
 				const match3 = matcher.matchEpisode(
 					"Tech Talk",
-					{ title: "Episode 3", duration: 303 }, // 303 vs 300 is 1% diff
+					{ published: new Date(0), title: "Episode 3", duration: 303 }, // 303 vs 300 is 1% diff
 					driveIndex,
 				);
 
 				// 4. Same size/duration but different show should NOT match
 				const match4 = matcher.matchEpisode(
 					"Other Show",
-					{ title: "Episode 4", fileSize: 1000, duration: 100 },
+					{ published: new Date(0), title: "Episode 4", fileSize: 1000, duration: 100 },
 					driveIndex,
 				);
 
 				// 5. Duration match outside tolerance (e.g. 310s for 300s) should NOT match
 				const match5 = matcher.matchEpisode(
 					"Tech Talk",
-					{ title: "Episode 5", duration: 310 }, // 310 vs 300 is > 3% diff
+					{ published: new Date(0), title: "Episode 5", duration: 310 }, // 310 vs 300 is > 3% diff
 					driveIndex,
 				);
 
@@ -876,9 +882,10 @@ describe("DriveScan Service", () => {
 				const exit = yield* podcastService.loadMacPodcasts.pipe(Effect.exit);
 				expect(exit._tag).toBe("Failure");
 				if (exit._tag === "Failure") {
-					expect(exit.cause._tag).toBe("Fail");
-					if (exit.cause._tag === "Fail") {
-						expect(exit.cause.error).toBeInstanceOf(DatabaseNotFoundError);
+					const error = Cause.findError(exit.cause);
+					expect(Result.isSuccess(error)).toBe(true);
+					if (Result.isSuccess(error)) {
+						expect(error.success).toBeInstanceOf(DatabaseNotFoundError);
 					}
 				}
 			});

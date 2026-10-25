@@ -3,6 +3,7 @@ import { Colors } from "@/theme/colors";
 import type { PodcastEpisode } from "@/types/podcast";
 import { EpisodeItem } from "./EpisodeItem";
 import { Footer } from "./Footer";
+import { createScrollFollow } from "./scrollFollow";
 
 export interface EpisodeListProps {
 	title: string;
@@ -23,6 +24,7 @@ export interface EpisodeListProps {
  */
 export function EpisodeList(props: EpisodeListProps) {
 	const borderColor = () => (props.focused ? Colors.border.focused : Colors.border.unfocused);
+	const follow = createScrollFollow(() => props.selectedIndex);
 	const backgroundColor = () => (props.focused ? Colors.focused : Colors.background);
 
 	return (
@@ -55,6 +57,7 @@ export function EpisodeList(props: EpisodeListProps) {
 			</box>
 
 			<scrollbox
+				ref={follow.ref}
 				flexGrow={1}
 				focused={props.focused}
 				scrollbarOptions={{
@@ -91,6 +94,8 @@ export function EpisodeList(props: EpisodeListProps) {
 							<For each={props.episodes}>
 								{(episode, index) => (
 									<EpisodeItem
+										id={follow.rowId(index())}
+										onLayout={follow.onRowLayout(index)}
 										episode={episode}
 										isSelected={episode.selected}
 										isFocused={props.focused && index() === props.selectedIndex}

@@ -1,5 +1,5 @@
-import { useTerminalDimensions } from "@opentui/solid";
-import { createMemo, type JSX, Show } from "solid-js";
+import { useTerminalDimensions, type JSX } from "@opentui/solid";
+import { createMemo, Show } from "solid-js";
 import { Colors } from "@/theme/colors";
 
 export interface ModalProps {

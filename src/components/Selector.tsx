@@ -2,6 +2,7 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { Colors } from "@/theme/colors";
 import { Footer } from "./Footer";
 import { Modal } from "./Modal";
+import { createScrollFollow } from "./scrollFollow";
 import { Spinner } from "./Spinner";
 
 export interface SelectorProps<T> {
@@ -31,6 +32,8 @@ export function Selector<T>(props: SelectorProps<T>) {
 		props.selectedIndex !== undefined ? props.selectedIndex : internalIndex(),
 	);
 
+	const follow = createScrollFollow(currentIndex);
+
 	const handleInteraction = (index: number, item: T) => {
 		if (currentIndex() === index) {
 			props.onSelect(item);
@@ -54,7 +57,7 @@ export function Selector<T>(props: SelectorProps<T>) {
 		>
 			<box flexDirection='column' gap={1} flexGrow={props.height ? 1 : 0}>
 				<Show when={props.loading}>
-					<Spinner active={true} label={props.loadingText || "Loading..."} />
+					<Spinner label={props.loadingText || "Loading..."} />
 				</Show>
 
 				<Show when={!props.loading}>
@@ -63,6 +66,7 @@ export function Selector<T>(props: SelectorProps<T>) {
 						fallback={<text>{props.emptyText || "No items found"}</text>}
 					>
 						<scrollbox
+							ref={follow.ref}
 							focused={true}
 							height={props.height ? undefined : Math.min(props.items.length, 12)}
 							flexGrow={props.height ? 1 : 0}
@@ -80,6 +84,8 @@ export function Selector<T>(props: SelectorProps<T>) {
 
 									return (
 										<box
+											id={follow.rowId(index())}
+											onSizeChange={follow.onRowLayout(index)}
 											flexDirection='column'
 											paddingLeft={1}
 											paddingRight={1}
@@ -130,7 +136,12 @@ export function Selector<T>(props: SelectorProps<T>) {
 							],
 						]}
 						onShortcutClick={(key) => {
-							if (key === "esc") props.onClose();
+							// "esc" is fully handled by closing; forwarding it would make the
+							// parent run its escape action against the already-closed view.
+							if (key === "esc") {
+								props.onClose();
+								return;
+							}
 							props.onShortcutClick?.(key);
 						}}
 					/>

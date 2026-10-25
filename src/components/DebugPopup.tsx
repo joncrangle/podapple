@@ -1,4 +1,4 @@
-import { state } from "@/store";
+import { actions, state } from "@/store";
 import { Colors } from "@/theme/colors";
 import { Selector } from "./Selector";
 
@@ -45,6 +45,7 @@ export function DebugPopup(props: DebugPopupProps) {
 			width='85%'
 			height='85%'
 			selectedIndex={state.debugMenuIndex}
+			onIndexChange={(index) => actions.setDebugMenuIndex(index)}
 			onClose={props.onClose}
 			onShortcutClick={props.onShortcutClick}
 			onSelect={() => {}}

@@ -5,12 +5,7 @@ export type AppView =
 	| "transferring"
 	| "confirm"
 	| "themeSelection"
-	| "debug"
-	| "main"
-	| "podcasts"
-	| "episodes"
-	| "drives"
-	| "sync";
+	| "debug";
 
 /**
  * Focused pane in dual-pane layout.
